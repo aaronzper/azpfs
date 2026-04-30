@@ -10,6 +10,8 @@ A networked filesystem over TCP using Linux's FUSE interface. The client is a FU
 forwards kernel filesystem calls over the wire to a server, which serves them against a real
 on-disk filesystem.
 
+This is meant to be run over Linux, in the course ubuntu container.
+
 ## Crate layout
 
 Single crate (`azpfs`) with one library and two binaries:
@@ -31,9 +33,6 @@ cargo run --bin azpfs-server -- <port> <root_dir>
 
 # Mount client (mounts at <mountpoint>, connecting to server at <host>:<port>)
 cargo run --bin azpfsd -- <host>:<port> <mountpoint>
-
-# Unmount
-fusermount -u <mountpoint>
 ```
 
 ## Testing

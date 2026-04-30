@@ -5,7 +5,7 @@ edition = "2024"
 
 [lib]
 name = "libazpfs"
-path = "src/lib/mod.rs"
+path = "src/core/mod.rs"
 
 [[bin]]
 name = "azpfsd"
@@ -16,3 +16,7 @@ name = "azpfs-server"
 path = "src/server/main.rs"
 
 [dependencies]
+tokio = { version = "1.49", features = ["full"] }
+clap = { version = "4.5.32", features = ["derive"] }
+fuser = "0.17.0"
+libc = "0.2"
