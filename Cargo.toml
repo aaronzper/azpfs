@@ -3,4 +3,16 @@ name = "azpfs"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "libazpfs"
+path = "src/lib/mod.rs"
+
+[[bin]]
+name = "azpfsd"
+path = "src/client/main.rs"
+
+[[bin]]
+name = "azpfs-server"
+path = "src/server/main.rs"
+
 [dependencies]
