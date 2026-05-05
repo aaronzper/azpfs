@@ -1,14 +1,15 @@
-use std::time::{Duration, UNIX_EPOCH};
-
 use fuser::{
     Errno, FileAttr, FileHandle, FileType, Filesystem, Generation, INodeNo,
     ReplyAttr, ReplyDirectory, ReplyEntry, Request,
 };
 use libc::ENOENT;
 use std::ffi::OsStr;
+use std::time::{Duration, UNIX_EPOCH};
+use tracing::*;
 
 const TEST_FILENAME: &str = "foo";
 
+#[derive(Debug)]
 pub struct FUSEFilesytem;
 
 impl FUSEFilesytem {
@@ -38,6 +39,7 @@ fn dir_attr(ino: INodeNo) -> FileAttr {
 }
 
 impl Filesystem for FUSEFilesytem {
+    #[instrument]
     fn lookup(
         &self,
         _req: &Request,
@@ -56,6 +58,7 @@ impl Filesystem for FUSEFilesytem {
         }
     }
 
+    #[instrument]
     fn getattr(
         &self,
         _req: &Request,
@@ -73,6 +76,7 @@ impl Filesystem for FUSEFilesytem {
         }
     }
 
+    #[instrument]
     fn readdir(
         &self,
         _req: &Request,
@@ -97,6 +101,7 @@ impl Filesystem for FUSEFilesytem {
                 return;
             }
         }
+
         reply.ok();
     }
 }
