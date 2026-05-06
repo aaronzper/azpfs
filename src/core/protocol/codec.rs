@@ -42,14 +42,14 @@ impl Encoder<Message> for MessageCodec {
     }
 }
 
+/// `binrw`'s built-in `is_eof` doesn't correctly unwrap backtrace errors into
+/// underlying EOF errors, thus we use this
 fn is_eof(e: &binrw::Error) -> bool {
     match e {
         binrw::Error::Io(io) => io.kind() == std::io::ErrorKind::UnexpectedEof,
-        // If we hit EOF, instead of erring with the above, each enum variant
-        // will individuall err with it. Thus, this checks for that to correctly
-        // detect EOF.
+        binrw::Error::Backtrace(bt) => is_eof(&bt.error),
         binrw::Error::EnumErrors { variant_errors, .. } => {
-            variant_errors.iter().all(|(_, e)| is_eof(e))
+            variant_errors.iter().any(|(_, e)| is_eof(e))
         }
         _ => false,
     }
