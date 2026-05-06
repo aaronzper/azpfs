@@ -1,13 +1,10 @@
 use crate::{
+    AzpfsReader, AzpfsWriter,
     protocol::{Message, MessageCodec},
     server::handlers::handle_msg,
 };
 use futures::{SinkExt, StreamExt};
-use std::fmt::Debug;
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    sync::mpsc,
-};
+use tokio::sync::mpsc;
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::*;
 
@@ -15,11 +12,7 @@ mod handlers;
 
 #[instrument]
 /// Handles receiving and sending messages for a single client
-pub async fn handle_client<R, W>(r: R, w: W)
-where
-    R: AsyncRead + Unpin + Debug,
-    W: AsyncWrite + Unpin + Debug + Send + 'static,
-{
+pub async fn handle_client<R: AzpfsReader, W: AzpfsWriter>(r: R, w: W) {
     let (tx, mut rx) = mpsc::channel(32);
     let mut writer = FramedWrite::new(w, MessageCodec);
     tokio::spawn(
