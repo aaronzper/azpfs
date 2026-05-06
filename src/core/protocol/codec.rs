@@ -4,6 +4,7 @@ use tokio_util::codec::{Decoder, Encoder};
 
 use super::Message;
 
+#[derive(Debug)]
 pub struct MessageCodec;
 
 impl Decoder for MessageCodec {

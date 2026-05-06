@@ -221,3 +221,51 @@ pub enum Message {
         dest_filename: Vec<u8>,
     },
 }
+
+impl Message {
+    pub fn request_id(&self) -> u32 {
+        match self {
+            Self::Error { request_id, .. }
+            | Self::InitReq { request_id, .. }
+            | Self::InitRes { request_id, .. }
+            | Self::LookupReq { request_id, .. }
+            | Self::LookupRes { request_id, .. }
+            | Self::GetAttrReq { request_id, .. }
+            | Self::FileAttrRes { request_id, .. }
+            | Self::SetAttrReq { request_id, .. }
+            | Self::SuccessRes { request_id, .. }
+            | Self::StatsReq { request_id, .. }
+            | Self::StatsRes { request_id, .. }
+            | Self::CreateReq { request_id, .. }
+            | Self::ReadReq { request_id, .. }
+            | Self::ReadRes { request_id, .. }
+            | Self::WriteReq { request_id, .. }
+            | Self::ReaddirReq { request_id, .. }
+            | Self::RmReq { request_id, .. }
+            | Self::MoveReq { request_id, .. } => *request_id,
+        }
+    }
+
+    pub fn set_request_id(&mut self, id: u32) {
+        match self {
+            Self::Error { request_id, .. }
+            | Self::InitReq { request_id, .. }
+            | Self::InitRes { request_id, .. }
+            | Self::LookupReq { request_id, .. }
+            | Self::LookupRes { request_id, .. }
+            | Self::GetAttrReq { request_id, .. }
+            | Self::FileAttrRes { request_id, .. }
+            | Self::SetAttrReq { request_id, .. }
+            | Self::SuccessRes { request_id, .. }
+            | Self::StatsReq { request_id, .. }
+            | Self::StatsRes { request_id, .. }
+            | Self::CreateReq { request_id, .. }
+            | Self::ReadReq { request_id, .. }
+            | Self::ReadRes { request_id, .. }
+            | Self::WriteReq { request_id, .. }
+            | Self::ReaddirReq { request_id, .. }
+            | Self::RmReq { request_id, .. }
+            | Self::MoveReq { request_id, .. } => *request_id = id,
+        }
+    }
+}

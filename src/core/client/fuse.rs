@@ -1,3 +1,5 @@
+use crate::client::handler::ClientHandler;
+use crate::{AzpfsReader, AzpfsWriter};
 use fuser::{
     Errno, FileAttr, FileHandle, FileType, Filesystem, Generation, INodeNo,
     ReplyAttr, ReplyDirectory, ReplyEntry, Request,
@@ -10,11 +12,13 @@ use tracing::*;
 const TEST_FILENAME: &str = "foo";
 
 #[derive(Debug)]
-pub struct FUSEFilesytem;
+pub struct FUSEFilesytem<R: AzpfsReader, W: AzpfsWriter> {
+    handler: ClientHandler<R, W>,
+}
 
-impl FUSEFilesytem {
-    pub fn new() -> Self {
-        Self
+impl<R: AzpfsReader, W: AzpfsWriter> FUSEFilesytem<R, W> {
+    pub fn new(handler: ClientHandler<R, W>) -> Self {
+        Self { handler }
     }
 }
 
@@ -38,7 +42,7 @@ fn dir_attr(ino: INodeNo) -> FileAttr {
     }
 }
 
-impl Filesystem for FUSEFilesytem {
+impl<R: AzpfsReader, W: AzpfsWriter> Filesystem for FUSEFilesytem<R, W> {
     #[instrument]
     fn lookup(
         &self,

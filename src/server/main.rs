@@ -20,7 +20,7 @@ async fn main() -> std::io::Result<()> {
         .pretty()
         .init();
 
-    let listener = TcpListener::bind("localhost:19310").await?;
+    let listener = TcpListener::bind("0.0.0.0:19310").await?;
     info!(binding = ?listener.local_addr(), "Server started!");
 
     loop {

@@ -1,17 +1,23 @@
 use clap::Parser;
 use fuser::{Config, MountOption, SessionACL, mount2};
-use libazpfs::client::FUSEFilesytem;
-use std::path::PathBuf;
-use tracing::info;
+use libazpfs::client::{ClientHandler, FUSEFilesytem};
+use std::{net::SocketAddr, path::PathBuf};
+use tokio::net::TcpStream;
+use tracing::*;
 
 #[derive(Parser)]
 struct Args {
-    /// Mount path
+    /// Mount path on the local filesystem
     #[arg(required = true)]
     mountpoint: PathBuf,
+
+    /// The TCP socket address of the remote AZPFS server to connect to
+    #[arg(required = true)]
+    address: SocketAddr,
 }
 
-fn main() -> std::io::Result<()> {
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -29,7 +35,17 @@ fn main() -> std::io::Result<()> {
         .init();
 
     let args = Args::parse();
-    let fs = FUSEFilesytem::new();
+
+    let stream = TcpStream::connect(args.address).await?;
+    let (r, w) = stream.into_split();
+    let handler = match ClientHandler::new(r, w).await {
+        Ok(h) => h,
+        Err(e) => {
+            error!(error=?e, "Failed to connect to server,");
+            return Err(std::io::ErrorKind::NotConnected.into());
+        }
+    };
+    let fs = FUSEFilesytem::new(handler);
 
     info!(mountpoint = args.mountpoint.to_str(), "azpfsd starting");
 
