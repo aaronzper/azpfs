@@ -5,6 +5,8 @@ MOUNTPOINT="${1:-/tmp/mntfuse}"
 ADDR="${2:-127.0.0.1:19310}"
 SERVER_ROOT="${3:-/tmp/azpfsroot}"
 
+cargo build || exit 1
+
 mkdir -p "$MOUNTPOINT" "$SERVER_ROOT"
 
 # Open a new tmux window; capture the initial (left) pane ID
