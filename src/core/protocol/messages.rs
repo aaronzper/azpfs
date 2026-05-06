@@ -14,8 +14,9 @@ pub enum Message {
         #[br(temp)]
         #[bw(calc = message.len() as u16)]
         message_len: u16,
-        #[br(count = message_len)]
-        message: Vec<u8>,
+        #[br(count = message_len, try_map = |v: Vec<u8>| String::from_utf8(v))]
+        #[bw(map = |s: &String| s.as_bytes().to_vec())]
+        message: String,
     },
 
     #[brw(magic = 0x01u8)]
