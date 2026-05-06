@@ -5,6 +5,9 @@ pub mod client;
 pub mod protocol;
 pub mod server;
 
+#[cfg(test)]
+mod tests;
+
 pub trait AzpfsReader:
     AsyncRead + Unpin + Debug + Send + Sync + 'static
 {

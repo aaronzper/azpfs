@@ -19,7 +19,7 @@ Single crate (`azpfs`) with one library (`libazpfs`) and two binaries:
 ```
 src/core/           # libazpfs (lib root: src/core/mod.rs)
 src/core/client/    #   client-side logic (FUSEFilesystem / ClientHandler)
-src/core/server/    #   server-side logic (handle_client, FsBackend impls)
+src/core/server/    #   server-side logic (handle_client, handle_msg)
 src/client/main.rs  # binary azpfsd — mounts FUSE, delegates to libazpfs
 src/server/main.rs  # binary azpfs-server — listens on TCP, delegates to libazpfs
 ```
@@ -39,13 +39,34 @@ cargo run --bin azpfsd -- <host>:<port> <mountpoint>
 
 ## Testing
 
-Tests live in `src/core/`. Two layers:
+Tests live in `src/core/tests.rs` (module declared in `src/core/mod.rs`).
 
+### Test harness pattern
 
-A `FsBackend` trait abstracts the server-side filesystem, with `RealFs` (wrapping `tokio::fs`)
-as the primary implementation. This allows server logic to be tested without touching disk when
-a `MemFs` backend mock is substituted. Tests also use an in-memory `Transport` implementation as
-an in-process socket shim — no real TCP, no FUSE mount needed.
+All client-server tests use `tokio::io::duplex` to link a `ClientHandler` to a `handle_client`
+task in-process — no real TCP, no FUSE mount needed. Use the `setup()` helper:
+
+```rust
+async fn setup() -> ClientHandler<impl AzpfsWriter> {
+    let (client_reader, server_writer) = tokio::io::duplex(4096);
+    let (server_reader, client_writer) = tokio::io::duplex(4096);
+    tokio::spawn(handle_client(server_reader, server_writer));
+    timeout(Duration::from_secs(5), ClientHandler::new(client_reader, client_writer))
+        .await
+        .expect("setup timed out")
+        .expect("ClientHandler::new failed")
+}
+```
+
+The two pairs are **crossed**: client reads from one end, server writes to the other, and vice
+versa. `ClientHandler::new` performs the INIT handshake internally, so `setup()` returning `Ok`
+already validates the handshake. Each subsequent test:
+1. Calls `let mut handler = setup().await;`
+2. Calls a `ClientHandler` method (to be added as operations are implemented)
+3. Asserts the returned value
+
+Always wrap async test operations in `tokio::time::timeout` to prevent tests from hanging
+if a response never arrives.
 
 ```bash
 cargo test                    # run all tests
@@ -125,29 +146,22 @@ Bit 0 = Size, Bit 1 = Access Time, Bit 2 = Modification Time, Bit 3 = Permission
 - On a file: simple unlink
 - On a directory: recursive removal (equivalent to `rm -rf`)
 
-### Server
-- `Arc<ServerState>` shared across per-connection `handle_client` tasks (spawned by Tokio)
+### Transport layer
+No `Transport` trait — instead, `AzpfsReader` and `AzpfsWriter` are blanket traits over
+`AsyncRead`/`AsyncWrite` + bounds (`Unpin + Debug + Send + Sync + 'static`). Anything satisfying
+those bounds (real `TcpStream` halves, `tokio::io::duplex` halves) works without any wrapper.
 
-### Client (`ClientHandler<T, F>`)
-- Parameterized over transport layer `T: Transport` and filesystem backend `F: FsBackend` (see below)
-- Implements the `fuser::Filesystem` trait, forwarding calls to the server via `T`
+### Server (`src/core/server/`)
+- `handle_client<R, W>(r: R, w: W)` — per-connection entry point, spawned by Tokio for each TCP client
+- Internally: spawns a writer task draining an `mpsc::channel(32)`, and a reader loop that spawns
+  a task per message calling `handle_msg(msg, tx)`
+- `handle_msg` in `handlers.rs` dispatches on message type; only `InitReq` is currently implemented
 
-### `Transport` trait
-First-class abstraction over the network layer, on equal footing with `FsBackend`. Two implementations:
-- **TCP** — wraps a real `TcpStream`, used in production
-- **In-memory shim** — backed by `tokio::io::duplex`; no real TCP, no OS sockets, used in tests
-
-### `FsBackend` trait
-First-class abstraction over the server-side filesystem, on equal footing with `Transport`. Async trait with methods mirroring FUSE operations: `getattr`, `readdir`, `read`, `write`, and friends.
-
-Implementations:
-- `RealFs` — wraps `tokio::fs`, rooted at a `PathBuf`
-- `MemFs` *(stretch)* — `HashMap<PathBuf, Vec<u8>>` behind `tokio::sync::RwLock`
-
-### `ClientHandler<T: Transport, F: FsBackend>`
-Generic over **both** `Transport` and `FsBackend`. Implements `fuser::Filesystem`, forwarding FUSE calls to the server via `T`.
-
-This dual genericity is what makes the test harness work: tests construct a `ClientHandler` with the in-memory shim transport and a `RealFs` (or `MemFs`) backend, wire the other end to a `handle_client` task, and exercise the full client-server path in-process — no FUSE mount, no TCP. **Always understand both traits before writing any code involving `ClientHandler` or tests.**
+### Client (`src/core/client/`)
+- `ClientHandler<W: AzpfsWriter>` — generic over the writer half only; takes a separate reader on construction
+- `ClientHandler::new(r, w)` — spawns a `receive_loop` task, then performs the INIT handshake
+- `receive_loop` routes incoming messages to per-request `mpsc::unbounded_channel` receivers keyed by request ID
+- `FUSEFilesystem<W>` in `fuse.rs` wraps `ClientHandler` and implements `fuser::Filesystem`
 
 ## FUSE operations in scope
 
