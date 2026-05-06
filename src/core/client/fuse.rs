@@ -12,12 +12,12 @@ use tracing::*;
 const TEST_FILENAME: &str = "foo";
 
 #[derive(Debug)]
-pub struct FUSEFilesytem<R: AzpfsReader, W: AzpfsWriter> {
-    handler: ClientHandler<R, W>,
+pub struct FUSEFilesytem<W: AzpfsWriter> {
+    handler: ClientHandler<W>,
 }
 
-impl<R: AzpfsReader, W: AzpfsWriter> FUSEFilesytem<R, W> {
-    pub fn new(handler: ClientHandler<R, W>) -> Self {
+impl<W: AzpfsWriter> FUSEFilesytem<W> {
+    pub fn new(handler: ClientHandler<W>) -> Self {
         Self { handler }
     }
 }
@@ -42,7 +42,7 @@ fn dir_attr(ino: INodeNo) -> FileAttr {
     }
 }
 
-impl<R: AzpfsReader, W: AzpfsWriter> Filesystem for FUSEFilesytem<R, W> {
+impl<W: AzpfsWriter> Filesystem for FUSEFilesytem<W> {
     #[instrument]
     fn lookup(
         &self,
