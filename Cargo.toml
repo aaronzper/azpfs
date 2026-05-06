@@ -16,6 +16,7 @@ name = "azpfs-server"
 path = "src/server/main.rs"
 
 [dependencies]
+binrw = "0.14"
 tokio = { version = "1.49", features = ["full"] }
 clap = { version = "4.5.32", features = ["derive"] }
 fuser = "0.17.0"
