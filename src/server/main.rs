@@ -1,6 +1,19 @@
+use clap::Parser;
 use libazpfs::server::handle_client;
+use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
 use tracing::*;
+
+#[derive(Parser)]
+struct Args {
+    /// The TCP socket address & port to bind on
+    #[arg(required = true)]
+    bind_address: SocketAddr,
+
+    /// Path of the root directory to be exposed by the server
+    #[arg(required = true)]
+    root_path: PathBuf,
+}
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -20,7 +33,9 @@ async fn main() -> std::io::Result<()> {
         .pretty()
         .init();
 
-    let listener = TcpListener::bind("0.0.0.0:19310").await?;
+    let args = Args::parse();
+
+    let listener = TcpListener::bind(args.bind_address).await?;
     info!(binding = ?listener.local_addr(), "Server started!");
 
     loop {
