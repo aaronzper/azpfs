@@ -1,3 +1,7 @@
+use crate::{
+    protocol::{Message, MessageCodec},
+    server::handlers::handle_msg,
+};
 use futures::{SinkExt, StreamExt};
 use std::fmt::Debug;
 use tokio::{
@@ -7,9 +11,10 @@ use tokio::{
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::*;
 
-use crate::protocol::{Message, MessageCodec};
+mod handlers;
 
 #[instrument]
+/// Handles receiving and sending messages for a single client
 pub async fn handle_client<R, W>(r: R, w: W)
 where
     R: AsyncRead + Unpin + Debug,
@@ -40,20 +45,9 @@ where
                 };
                 debug!(?msg, "Received");
 
-                // test reply for now
-                let reply = Message::Error {
-                    request_id: 1,
-                    error_code: crate::protocol::ErrorCode::Invalid,
-                    message: "Not implemented".to_string(),
-                };
-
-                if let Err(e) = tx.send(reply).await {
-                    warn!(error=?e, "Reply error");
-                }
+                handle_msg(msg, tx).await;
             }
             .instrument(Span::current()),
         );
     }
-
-    println!("bye...");
 }
