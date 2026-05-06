@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::*;
 
-#[instrument(skip_all, fields(listeners=?listeners.lock().unwrap().keys()))]
+#[instrument(skip_all)]
 async fn receive_loop<R: AzpfsReader>(
     mut reader: FramedRead<R, MessageCodec>,
     listeners: Arc<Mutex<HashMap<u32, mpsc::UnboundedSender<Message>>>>,
