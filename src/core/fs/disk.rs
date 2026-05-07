@@ -15,7 +15,7 @@ use std::{
 };
 use tokio::{
     fs,
-    io::{AsyncReadExt, AsyncSeekExt},
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
 };
 use tracing::*;
 
@@ -201,7 +201,11 @@ impl FsBackend for DiskFs {
         offset: u64,
         data: &[u8],
     ) -> Result<()> {
-        todo!()
+        let path = self.get_path(inode)?;
+        let mut file = fs::OpenOptions::new().write(true).open(path).await?;
+        file.seek(io::SeekFrom::Start(offset)).await?;
+
+        file.write_all(data).await
     }
 
     async fn read_dir(&mut self, inode: u64) -> Result<Vec<DirEntry>> {

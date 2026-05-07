@@ -371,7 +371,16 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
         offset: u64,
         data: &[u8],
     ) -> io::Result<()> {
-        todo!()
+        let mut listener = self
+            .send_msg(Message::WriteReq {
+                request_id: 0,
+                inode,
+                offset,
+                data: data.to_vec(),
+            })
+            .await?;
+
+        await_success(&mut listener).await
     }
 
     async fn read_dir(&mut self, inode: u64) -> io::Result<Vec<DirEntry>> {

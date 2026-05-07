@@ -182,7 +182,12 @@ pub async fn handle_msg(
             offset,
             data,
         } => {
-            todo!()
+            let mut fs = fs.lock().await;
+            let reply = match fs.write(inode, offset, &data).await {
+                Ok(()) => Message::SuccessRes { request_id },
+                Err(e) => Message::from_error(request_id, e),
+            };
+            replier.send(reply).await.unwrap();
         }
 
         Message::ReaddirReq { request_id, inode } => {
