@@ -40,9 +40,7 @@ impl DiskFs {
 }
 
 impl FsBackend for DiskFs {
-    #[instrument]
     async fn lookup(&mut self, dir_inode: u64, filename: &Path) -> Result<u64> {
-        debug!("Made it!");
         let mut path = self.get_path(dir_inode)?.to_path_buf();
         path.push(filename);
 
