@@ -3,8 +3,8 @@ use binrw::binrw;
 use super::error::ErrorCode;
 use crate::fs::FileType;
 
-/// READ_RES len is 15-bit, thus 2^15 is the max number of bytes in one
-pub const MAX_READ_RES_CHUNK: usize = (u16::MAX >> 1) as usize;
+/// Max bytes in a single READ_RES chunk (chunk_length is u16).
+pub const MAX_READ_RES_CHUNK: usize = u16::MAX as usize;
 
 #[binrw]
 #[brw(big)]
@@ -160,21 +160,17 @@ pub enum Message {
     ///
     /// `total_length` is the total byte count across all chunks for this request,
     /// used by the client to pre-allocate a reassembly buffer.
-    /// `eof` is true if this chunk contains the last byte of the file (ignored for READDIR).
     /// Callers must reassemble all chunks by `chunk_offset` before parsing directory entries.
+    /// EOF is implicit: a short read (data.len() < requested length) means EOF was reached.
     #[brw(magic = 0x0Du8)]
     ReadRes {
         request_id: u32,
         total_length: u64,
-        // Wire: bit 15 = eof, bits 14..0 = chunk_length (derived from data.len() on write).
         #[br(temp)]
-        #[bw(calc = (*eof as u16) << 15 | data.len() as u16)]
-        eof_and_chunk_len: u16,
-        #[br(calc = eof_and_chunk_len >> 15 != 0)]
-        #[bw(ignore)]
-        eof: bool,
+        #[bw(calc = data.len() as u16)]
+        chunk_length: u16,
         chunk_offset: u64,
-        #[br(count = (eof_and_chunk_len & 0x7FFF) as usize)]
+        #[br(count = chunk_length)]
         data: Vec<u8>,
     },
 

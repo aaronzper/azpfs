@@ -121,7 +121,6 @@ local f_read_length = ProtoField.uint64("azpfs.read_length", "Length", base.DEC)
 
 -- READ_RES
 local f_total_length  = ProtoField.uint64("azpfs.total_length", "Total Length", base.DEC)
-local f_eof           = ProtoField.bool("azpfs.eof", "EOF", 16, nil, 0x8000)
 local f_chunk_length  = ProtoField.uint16("azpfs.chunk_length", "Chunk Length", base.DEC)
 local f_chunk_offset  = ProtoField.uint64("azpfs.chunk_offset", "Chunk Offset", base.DEC)
 local f_data          = ProtoField.bytes("azpfs.data", "Data")
@@ -159,7 +158,7 @@ azpfs.fields = {
     f_total_inodes, f_free_inodes, f_max_fname_len, f_frag_size,
     f_unix_flags, f_is_directory,
     f_read_offset, f_read_length,
-    f_total_length, f_eof, f_chunk_length, f_chunk_offset, f_data,
+    f_total_length, f_chunk_length, f_chunk_offset, f_data,
     f_write_offset, f_write_length, f_write_data,
     f_dest_dir_inode, f_dest_filename_len, f_dest_filename,
     f_reassembled, f_chunk_count, f_reassembled_in,
@@ -237,10 +236,9 @@ local function get_message_length(tvb, offset)
         local fname_len = tvb(offset + 20, 1):uint()
         return 21 + fname_len, nil
 
-    elseif msg_type == 0x0D then -- READ_RES: header=23, + chunk_len (low 15 bits of u16 at offset+13)
+    elseif msg_type == 0x0D then -- READ_RES: header=23, + chunk_len (u16 at offset+13)
         if remaining < 23 then return nil, 23 end
-        local flags = tvb(offset + 13, 2):uint()
-        local chunk_len = bit.band(flags, 0x7FFF)
+        local chunk_len = tvb(offset + 13, 2):uint()
         return 23 + chunk_len, nil
 
     elseif msg_type == 0x0E then -- WRITE_REQ: header=25, + length (u32 at offset+21)
@@ -554,10 +552,8 @@ local function dissect_message(tvb, offset, msg_len, pinfo, tree)
 
     elseif msg_type == 0x0D then -- READ_RES
         subtree:add(f_total_length, tvb(offset + 5, 8))
-        local flags = tvb(offset + 13, 2):uint()
-        local chunk_len = bit.band(flags, 0x7FFF)
-        subtree:add(f_eof, tvb(offset + 13, 2))
-        subtree:add(f_chunk_length, tvb(offset + 13, 2), chunk_len)
+        local chunk_len = tvb(offset + 13, 2):uint()
+        subtree:add(f_chunk_length, tvb(offset + 13, 2))
         subtree:add(f_chunk_offset, tvb(offset + 15, 8))
         if chunk_len > 0 then
             subtree:add(f_data, tvb(offset + 23, chunk_len))
@@ -565,12 +561,10 @@ local function dissect_message(tvb, offset, msg_len, pinfo, tree)
 
         local total_len = tvb(offset + 5, 8):uint64():tonumber()
         local chunk_off = tvb(offset + 15, 8):uint64():tonumber()
-        local is_eof = bit.rshift(flags, 15) ~= 0
 
-        info = string.format("READ_RES chunk %d-%d/%d%s",
+        info = string.format("READ_RES chunk %d-%d/%d",
             chunk_off, chunk_off + chunk_len - 1,
-            total_len,
-            is_eof and " [EOF]" or "")
+            total_len)
 
         -- Chunk reassembly
         if request_id then

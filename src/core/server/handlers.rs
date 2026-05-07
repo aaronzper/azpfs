@@ -16,16 +16,11 @@ use tokio::sync::mpsc;
 use tokio::{sync::Mutex, task::JoinSet};
 use tracing::*;
 
-fn assemble_read_res_chunks(
-    request_id: u32,
-    data: &[u8],
-    eof: bool,
-) -> Vec<Message> {
+fn assemble_read_res_chunks(request_id: u32, data: &[u8]) -> Vec<Message> {
     if data.is_empty() {
         return vec![Message::ReadRes {
             request_id,
             total_length: 0,
-            eof,
             chunk_offset: 0,
             data: vec![],
         }];
@@ -42,7 +37,6 @@ fn assemble_read_res_chunks(
         chunks.push(Message::ReadRes {
             request_id,
             total_length: data.len() as u64,
-            eof: eof && chunk_len == remaining,
             chunk_offset: head as u64,
             data: chunk.to_vec(),
         });
