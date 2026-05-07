@@ -15,30 +15,50 @@ use tokio::{sync::Mutex, time::timeout};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Wire a `ClientHandler` to a `handle_client` task via in-memory duplex
-/// channels. Returns the initialized `ClientHandler` (INIT handshake already
-/// done) or panics on timeout/error.
+// The writer half is either a duplex stream or a TCP OwnedWriteHalf; box them
+// to a common type so setup() has a single return type.
+type BoxWriter = Box<dyn crate::AzpfsWriter + Send + Sync>;
+
+/// Wire a `ClientHandler` to a `handle_client` task.
+///
+/// By default uses in-memory duplex channels. Set `AZPFS_TCP=1` to use a
+/// real loopback TCP connection instead, making traffic visible in Wireshark
+/// (capture on `lo`).
 ///
 /// Also returns the `TempDir` so the caller keeps it alive for the test's
 /// duration (dropping it would delete the backing directory).
-async fn setup() -> (ClientHandler<impl crate::AzpfsWriter>, TempDir) {
+async fn setup() -> (ClientHandler<BoxWriter>, TempDir) {
     let dir = TempDir::new().expect("failed to create temp dir");
     let fs = Arc::new(Mutex::new(DiskFs::new(dir.path().to_path_buf())));
 
-    // Two duplex pairs, crossed so client reads what server writes and
-    // vice-versa
-    let (client_reader, server_writer) = tokio::io::duplex(4096);
-    let (server_reader, client_writer) = tokio::io::duplex(4096);
+    let (client_r, client_w): (Box<dyn crate::AzpfsReader>, BoxWriter) =
+        if let Ok(port) = std::env::var("AZPFS_TCP") {
+            let addr = format!("127.0.0.1:{port}");
+            let listener =
+                tokio::net::TcpListener::bind(&addr).await.unwrap();
 
-    tokio::spawn(handle_client(server_reader, server_writer, fs));
+            let fs = Arc::clone(&fs);
+            tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let (r, w) = stream.into_split();
+                handle_client(r, w, fs).await;
+            });
 
-    let handler = timeout(
-        Duration::from_secs(5),
-        ClientHandler::new(client_reader, client_writer),
-    )
-    .await
-    .expect("setup timed out")
-    .expect("ClientHandler::new failed");
+            let stream =
+                tokio::net::TcpStream::connect(&addr).await.unwrap();
+            let (r, w) = stream.into_split();
+            (Box::new(r), Box::new(w))
+        } else {
+            let (client_reader, server_writer) = tokio::io::duplex(4096);
+            let (server_reader, client_writer) = tokio::io::duplex(4096);
+            tokio::spawn(handle_client(server_reader, server_writer, fs));
+            (Box::new(client_reader), Box::new(client_writer))
+        };
+
+    let handler = timeout(TIMEOUT, ClientHandler::new(client_r, client_w))
+        .await
+        .expect("setup timed out")
+        .expect("ClientHandler::new failed");
     (handler, dir)
 }
 

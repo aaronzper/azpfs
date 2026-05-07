@@ -204,7 +204,7 @@ local function get_message_length(tvb, offset)
         [0x02] = 6,   -- INIT_RES
         [0x04] = 13,  -- LOOKUP_RES
         [0x05] = 13,  -- GET_ATTR_REQ
-        [0x06] = 72,  -- FILE_ATTR_RES
+        [0x06] = 68,  -- FILE_ATTR_RES
         [0x07] = 48,  -- SET_ATTR_REQ
         [0x08] = 5,   -- SUCCESS_RES
         [0x09] = 5,   -- STATS_REQ
