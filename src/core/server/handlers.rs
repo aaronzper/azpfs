@@ -190,7 +190,7 @@ pub async fn handle_msg(
                 }
             };
 
-            let replies = assemble_read_res_chunks(request_id, &buf, false);
+            let replies = assemble_read_res_chunks(request_id, &buf);
             let mut reply_set = JoinSet::new();
             for reply in replies {
                 let replier = replier.clone();
