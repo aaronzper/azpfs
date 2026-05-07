@@ -501,6 +501,21 @@ async fn test_read_dir_entry_types() {
     }
 }
 
+#[tokio::test]
+async fn test_read_dir_on_file_fails() {
+    let (mut handler, dir) = setup().await;
+
+    std::fs::write(dir.path().join("notadir.txt"), b"data").unwrap();
+
+    let ino = t(handler.lookup(super::ROOT_INODE, Path::new("notadir.txt")))
+        .await
+        .expect("lookup failed");
+
+    t(handler.read_dir(ino))
+        .await
+        .expect_err("expected error when calling read_dir on a file");
+}
+
 // ── Remove ───────────────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -665,4 +680,366 @@ async fn test_rename_into_subdir() {
         std::fs::read(dir.path().join("dest_dir/moveme.txt")).unwrap(),
         b"moving"
     );
+}
+
+// ── Read/write combos ───────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_write_overlapping_then_read() {
+    let (mut handler, dir) = setup().await;
+
+    std::fs::write(dir.path().join("overlap.txt"), b"").unwrap();
+    let ino = t(handler.lookup(super::ROOT_INODE, Path::new("overlap.txt")))
+        .await
+        .expect("lookup failed");
+
+    // First write: "AAAAAAAAAA" at offset 0
+    t(handler.write(ino, 0, &[b'A'; 10]))
+        .await
+        .expect("write 1 failed");
+
+    // Second write: "BBBBB" at offset 5 — overlaps bytes [5..10)
+    t(handler.write(ino, 5, &[b'B'; 5]))
+        .await
+        .expect("write 2 failed");
+
+    let data = t(handler.read(ino, 0, 10)).await.expect("read failed");
+    assert_eq!(&data, b"AAAAABBBBB");
+}
+
+#[tokio::test]
+async fn test_write_gap_then_read_full() {
+    let (mut handler, dir) = setup().await;
+
+    std::fs::write(dir.path().join("gap.txt"), b"").unwrap();
+    let ino = t(handler.lookup(super::ROOT_INODE, Path::new("gap.txt")))
+        .await
+        .expect("lookup failed");
+
+    // Write at offset 0
+    t(handler.write(ino, 0, b"HEAD")).await.expect("write 1 failed");
+
+    // Write at offset 8 — leaves a gap of 4 zero bytes at [4..8)
+    t(handler.write(ino, 8, b"TAIL")).await.expect("write 2 failed");
+
+    let data = t(handler.read(ino, 0, 12)).await.expect("read failed");
+    assert_eq!(&data[..4], b"HEAD");
+    assert_eq!(&data[4..8], &[0u8; 4]); // gap should be zeros
+    assert_eq!(&data[8..], b"TAIL");
+}
+
+#[tokio::test]
+async fn test_write_middle_preserves_surrounding() {
+    let (mut handler, dir) = setup().await;
+
+    std::fs::write(dir.path().join("mid.txt"), b"0123456789").unwrap();
+    let ino = t(handler.lookup(super::ROOT_INODE, Path::new("mid.txt")))
+        .await
+        .expect("lookup failed");
+
+    // Overwrite only bytes [3..6) with "XYZ"
+    t(handler.write(ino, 3, b"XYZ")).await.expect("write failed");
+
+    let data = t(handler.read(ino, 0, 10)).await.expect("read failed");
+    assert_eq!(&data, b"012XYZ6789");
+}
+
+#[tokio::test]
+async fn test_write_extend_file() {
+    let (mut handler, dir) = setup().await;
+
+    std::fs::write(dir.path().join("extend.txt"), b"short").unwrap();
+    let ino = t(handler.lookup(super::ROOT_INODE, Path::new("extend.txt")))
+        .await
+        .expect("lookup failed");
+
+    // Write past the current end of the file
+    t(handler.write(ino, 5, b" and now longer"))
+        .await
+        .expect("write failed");
+
+    let data = t(handler.read(ino, 0, 20)).await.expect("read failed");
+    assert_eq!(&data, b"short and now longer");
+}
+
+#[tokio::test]
+async fn test_read_past_eof_returns_short() {
+    let (mut handler, dir) = setup().await;
+
+    std::fs::write(dir.path().join("small.txt"), b"abc").unwrap();
+    let ino = t(handler.lookup(super::ROOT_INODE, Path::new("small.txt")))
+        .await
+        .expect("lookup failed");
+
+    // Request 1024 bytes from a 3-byte file
+    let data = t(handler.read(ino, 0, 1024)).await.expect("read failed");
+    assert_eq!(&data, b"abc");
+}
+
+#[tokio::test]
+async fn test_read_at_eof_returns_empty() {
+    let (mut handler, dir) = setup().await;
+
+    std::fs::write(dir.path().join("eof.txt"), b"abc").unwrap();
+    let ino = t(handler.lookup(super::ROOT_INODE, Path::new("eof.txt")))
+        .await
+        .expect("lookup failed");
+
+    // Read starting exactly at the end
+    let data = t(handler.read(ino, 3, 10)).await.expect("read failed");
+    assert!(data.is_empty());
+}
+
+#[tokio::test]
+async fn test_truncate_then_write_then_read() {
+    let (mut handler, dir) = setup().await;
+
+    std::fs::write(dir.path().join("trw.txt"), b"old content here").unwrap();
+    let ino = t(handler.lookup(super::ROOT_INODE, Path::new("trw.txt")))
+        .await
+        .expect("lookup failed");
+
+    // Truncate to 0
+    t(handler.set_attr(ino, Some(0), None, None, None, None, None))
+        .await
+        .expect("truncate failed");
+
+    // Write new content
+    t(handler.write(ino, 0, b"fresh")).await.expect("write failed");
+
+    let data = t(handler.read(ino, 0, 100)).await.expect("read failed");
+    assert_eq!(&data, b"fresh");
+}
+
+#[tokio::test]
+async fn test_multiple_sequential_writes_then_full_read() {
+    let (mut handler, dir) = setup().await;
+
+    std::fs::write(dir.path().join("seq.txt"), b"").unwrap();
+    let ino = t(handler.lookup(super::ROOT_INODE, Path::new("seq.txt")))
+        .await
+        .expect("lookup failed");
+
+    // Build up "Hello, world!" one piece at a time
+    t(handler.write(ino, 0, b"Hello")).await.unwrap();
+    t(handler.write(ino, 5, b", ")).await.unwrap();
+    t(handler.write(ino, 7, b"world!")).await.unwrap();
+
+    let data = t(handler.read(ino, 0, 13)).await.expect("read failed");
+    assert_eq!(&data, b"Hello, world!");
+}
+
+#[tokio::test]
+async fn test_create_write_read_delete_cycle() {
+    let (mut handler, _dir) = setup().await;
+
+    let ino = t(handler.create_file(
+        super::ROOT_INODE,
+        0o644,
+        0,
+        Path::new("lifecycle.txt"),
+    ))
+    .await
+    .expect("create failed");
+
+    t(handler.write(ino, 0, b"lifecycle data"))
+        .await
+        .expect("write failed");
+
+    let data = t(handler.read(ino, 0, 100)).await.expect("read failed");
+    assert_eq!(&data, b"lifecycle data");
+
+    t(handler.remove(ino)).await.expect("remove failed");
+
+    // Reading after remove should fail
+    let err = t(handler.read(ino, 0, 1))
+        .await
+        .expect_err("expected error after remove");
+    let _ = err.kind();
+}
+
+// ── Multi-client ────────────────────────────────────────────────────────────
+
+/// Wire two independent clients to the same server-side DiskFs.
+async fn setup_multi() -> (
+    ClientHandler<BoxWriter>,
+    ClientHandler<BoxWriter>,
+    TempDir,
+) {
+    let dir = TempDir::new().expect("failed to create temp dir");
+    let fs = Arc::new(Mutex::new(DiskFs::new(dir.path().to_path_buf())));
+
+    let make_client = |fs: Arc<Mutex<DiskFs>>| async move {
+        let (cr, sw) = tokio::io::duplex(4096);
+        let (sr, cw) = tokio::io::duplex(4096);
+        tokio::spawn(handle_client(sr, sw, fs));
+        let cr: Box<dyn crate::AzpfsReader> = Box::new(cr);
+        let cw: BoxWriter = Box::new(cw);
+        timeout(TIMEOUT, ClientHandler::new(cr, cw))
+            .await
+            .expect("setup timed out")
+            .expect("ClientHandler::new failed")
+    };
+
+    let c1 = make_client(Arc::clone(&fs)).await;
+    let c2 = make_client(Arc::clone(&fs)).await;
+    (c1, c2, dir)
+}
+
+#[tokio::test]
+async fn test_multi_client_write_visible_to_other() {
+    let (mut c1, mut c2, dir) = setup_multi().await;
+
+    // Client 1 creates a file and writes to it
+    std::fs::write(dir.path().join("shared.txt"), b"").unwrap();
+    let ino1 = t(c1.lookup(super::ROOT_INODE, Path::new("shared.txt")))
+        .await
+        .expect("c1 lookup failed");
+
+    t(c1.write(ino1, 0, b"from client 1"))
+        .await
+        .expect("c1 write failed");
+
+    // Client 2 looks up the same file and reads it
+    let ino2 = t(c2.lookup(super::ROOT_INODE, Path::new("shared.txt")))
+        .await
+        .expect("c2 lookup failed");
+
+    let data = t(c2.read(ino2, 0, 100)).await.expect("c2 read failed");
+    assert_eq!(&data, b"from client 1");
+}
+
+#[tokio::test]
+async fn test_multi_client_both_write_same_file() {
+    let (mut c1, mut c2, dir) = setup_multi().await;
+
+    std::fs::write(dir.path().join("clobber.txt"), b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00").unwrap();
+
+    let ino1 = t(c1.lookup(super::ROOT_INODE, Path::new("clobber.txt")))
+        .await
+        .unwrap();
+    let ino2 = t(c2.lookup(super::ROOT_INODE, Path::new("clobber.txt")))
+        .await
+        .unwrap();
+
+    // Both clients write to different regions of the same file
+    t(c1.write(ino1, 0, b"AAAAA")).await.unwrap();
+    t(c2.write(ino2, 5, b"BBBBB")).await.unwrap();
+
+    // Either client should see the combined result
+    let data = t(c1.read(ino1, 0, 10)).await.expect("read failed");
+    assert_eq!(&data, b"AAAAABBBBB");
+}
+
+#[tokio::test]
+async fn test_multi_client_create_visible_in_readdir() {
+    let (mut c1, mut c2, _dir) = setup_multi().await;
+
+    // Client 1 creates a file
+    t(c1.create_file(super::ROOT_INODE, 0o644, 0, Path::new("c1_file.txt")))
+        .await
+        .expect("c1 create failed");
+
+    // Client 2 creates a different file
+    t(c2.create_file(super::ROOT_INODE, 0o644, 0, Path::new("c2_file.txt")))
+        .await
+        .expect("c2 create failed");
+
+    // Client 1 reads the directory and should see both files
+    let entries = t(c1.read_dir(super::ROOT_INODE))
+        .await
+        .expect("readdir failed");
+
+    let names: Vec<&str> = entries
+        .iter()
+        .filter_map(|e| std::str::from_utf8(&e.filename).ok())
+        .collect();
+
+    assert!(names.contains(&"c1_file.txt"), "missing c1_file.txt in {names:?}");
+    assert!(names.contains(&"c2_file.txt"), "missing c2_file.txt in {names:?}");
+}
+
+#[tokio::test]
+async fn test_multi_client_remove_reflected() {
+    let (mut c1, mut c2, dir) = setup_multi().await;
+
+    std::fs::write(dir.path().join("doomed.txt"), b"bye").unwrap();
+
+    let ino1 = t(c1.lookup(super::ROOT_INODE, Path::new("doomed.txt")))
+        .await
+        .unwrap();
+
+    // Client 1 removes the file
+    t(c1.remove(ino1)).await.expect("c1 remove failed");
+
+    // Client 2 should not be able to find it
+    let err = t(c2.lookup(super::ROOT_INODE, Path::new("doomed.txt")))
+        .await
+        .expect_err("expected NotFound from c2");
+
+    assert_eq!(err.kind(), ErrorKind::NotFound);
+}
+
+#[tokio::test]
+async fn test_multi_client_rename_visible() {
+    let (mut c1, mut c2, dir) = setup_multi().await;
+
+    std::fs::write(dir.path().join("orig.txt"), b"data").unwrap();
+
+    let ino = t(c1.lookup(super::ROOT_INODE, Path::new("orig.txt")))
+        .await
+        .unwrap();
+
+    // Client 1 renames
+    t(c1.rename(ino, super::ROOT_INODE, Path::new("moved.txt")))
+        .await
+        .expect("rename failed");
+
+    // Client 2 can find the new name
+    let ino2 = t(c2.lookup(super::ROOT_INODE, Path::new("moved.txt")))
+        .await
+        .expect("c2 lookup new name failed");
+    assert!(ino2 > 0);
+
+    // Old name is gone
+    let err = t(c2.lookup(super::ROOT_INODE, Path::new("orig.txt")))
+        .await
+        .expect_err("expected NotFound for old name");
+    assert_eq!(err.kind(), ErrorKind::NotFound);
+
+    // Content preserved
+    let data = t(c2.read(ino2, 0, 100)).await.expect("read failed");
+    assert_eq!(&data, b"data");
+}
+
+#[tokio::test]
+async fn test_multi_client_independent_sessions() {
+    // Two clients can each do full CRUD independently without interfering
+    let (mut c1, mut c2, _dir) = setup_multi().await;
+
+    let ino1 = t(c1.create_file(
+        super::ROOT_INODE, 0o644, 0, Path::new("c1_only.txt"),
+    ))
+    .await
+    .unwrap();
+
+    let ino2 = t(c2.create_file(
+        super::ROOT_INODE, 0o644, 0, Path::new("c2_only.txt"),
+    ))
+    .await
+    .unwrap();
+
+    // Each client writes to its own file
+    t(c1.write(ino1, 0, b"client1 data")).await.unwrap();
+    t(c2.write(ino2, 0, b"client2 data")).await.unwrap();
+
+    // Each reads back its own file correctly
+    let d1 = t(c1.read(ino1, 0, 100)).await.unwrap();
+    let d2 = t(c2.read(ino2, 0, 100)).await.unwrap();
+    assert_eq!(&d1, b"client1 data");
+    assert_eq!(&d2, b"client2 data");
+
+    // Cleanup: each removes its own file
+    t(c1.remove(ino1)).await.unwrap();
+    t(c2.remove(ino2)).await.unwrap();
 }
