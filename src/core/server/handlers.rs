@@ -217,7 +217,15 @@ pub async fn handle_msg(
             dest_dir_inode,
             dest_filename,
         } => {
-            todo!()
+            let mut fs = fs.lock().await;
+            let dest_filename =
+                PathBuf::from(OsString::from_vec(dest_filename));
+            let reply =
+                match fs.rename(inode, dest_dir_inode, &dest_filename).await {
+                    Ok(()) => Message::SuccessRes { request_id },
+                    Err(e) => Message::from_error(request_id, e),
+                };
+            replier.send(reply).await.unwrap();
         }
 
         // Client sent a response message for some reason, ignore

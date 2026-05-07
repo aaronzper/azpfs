@@ -227,6 +227,35 @@ impl FsBackend for DiskFs {
         dest_parent_inode: u64,
         dest_filename: &Path,
     ) -> Result<()> {
-        todo!()
+        if let Ok(dest_inode) =
+            self.lookup(dest_parent_inode, dest_filename).await
+        {
+            let dest_type = self.get_attr(dest_inode).await?.file_type;
+            let self_type = self.get_attr(inode).await?.file_type;
+            if let FileType::Directory = dest_type {
+                return Err(io::Error::new(
+                    ErrorKind::AlreadyExists,
+                    "Destination is a dir",
+                ));
+            } else if let FileType::RegularFile = dest_type
+                && dest_type != self_type
+            {
+                return Err(io::Error::new(
+                    ErrorKind::InvalidInput,
+                    "Destination and source file types must match",
+                ));
+            }
+
+            self.remove(dest_inode).await?;
+        }
+
+        let old_path = self.get_path(inode)?;
+        let mut new_path = self.get_path(dest_parent_inode)?.to_path_buf();
+        new_path.push(dest_filename);
+        fs::rename(old_path, &new_path).await?;
+
+        self.inode_map.insert(inode, new_path);
+
+        Ok(())
     }
 }

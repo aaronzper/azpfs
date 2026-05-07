@@ -395,9 +395,18 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
     async fn rename(
         &mut self,
         inode: u64,
-        dest_parent_inode: u64,
+        dest_dir_inode: u64,
         dest_filename: &Path,
     ) -> io::Result<()> {
-        todo!()
+        let mut listener = self
+            .send_msg(Message::MoveReq {
+                request_id: 0,
+                inode,
+                dest_dir_inode,
+                dest_filename: dest_filename.as_os_str().as_bytes().to_vec(),
+            })
+            .await?;
+
+        await_success(&mut listener).await
     }
 }
