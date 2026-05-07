@@ -264,11 +264,8 @@ async fn test_set_attr_mtime_only() {
 async fn test_stats() {
     let (mut handler, _dir) = setup().await;
 
-    let stats = t(handler.stats()).await.expect("stats failed");
-
-    assert!(stats.block_size > 0);
-    assert!(stats.total_blocks > 0);
-    assert!(stats.total_inodes > 0);
+    let err = t(handler.stats()).await.expect_err("expected stats to fail");
+    assert_eq!(err.kind(), ErrorKind::Unsupported);
 }
 
 // ── Create file / dir ────────────────────────────────────────────────────────
