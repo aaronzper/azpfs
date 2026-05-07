@@ -6,7 +6,10 @@ use crate::{
 use std::{
     collections::HashMap,
     io::{self, ErrorKind, Result},
-    os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{FileTypeExt, MetadataExt, PermissionsExt},
+    },
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -163,7 +166,11 @@ impl FsBackend for DiskFs {
         path.push(dir_name);
 
         fs::create_dir(&path).await?;
-        fs::set_permissions(&path, std::fs::Permissions::from_mode(permissions as u32)).await?;
+        fs::set_permissions(
+            &path,
+            std::fs::Permissions::from_mode(permissions as u32),
+        )
+        .await?;
 
         let ino = fs::metadata(&path).await?.ino();
         self.inode_map.entry(ino).or_insert(path);
@@ -189,7 +196,18 @@ impl FsBackend for DiskFs {
     }
 
     async fn read_dir(&mut self, inode: u64) -> Result<Vec<DirEntry>> {
-        todo!()
+        let path = self.get_path(inode)?;
+        let mut dir = fs::read_dir(path).await?;
+        let mut entries = Vec::new();
+        while let Some(entry) = dir.next_entry().await? {
+            entries.push(DirEntry {
+                inode: entry.ino(),
+                file_type: entry.file_type().await?.into(),
+                filename: entry.file_name().as_bytes().to_vec(),
+            });
+        }
+
+        Ok(entries)
     }
 
     async fn remove(&mut self, inode: u64) -> Result<()> {

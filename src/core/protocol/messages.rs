@@ -1,7 +1,10 @@
 use binrw::binrw;
 
-use crate::fs::FileType;
 use super::error::ErrorCode;
+use crate::fs::FileType;
+
+/// READ_RES len is 15-bit, thus 2^15 is the max number of bytes in one
+pub const MAX_READ_RES_CHUNK: usize = (u16::MAX >> 1) as usize;
 
 #[binrw]
 #[brw(big)]
@@ -47,16 +50,10 @@ pub enum Message {
     },
 
     #[brw(magic = 0x04u8)]
-    LookupRes {
-        request_id: u32,
-        inode: u64,
-    },
+    LookupRes { request_id: u32, inode: u64 },
 
     #[brw(magic = 0x05u8)]
-    GetAttrReq {
-        request_id: u32,
-        inode: u64,
-    },
+    GetAttrReq { request_id: u32, inode: u64 },
 
     /// File attributes response (returned by GET_ATTR_REQ).
     #[brw(magic = 0x06u8)]
@@ -115,14 +112,10 @@ pub enum Message {
 
     /// Generic success (returned by SET_ATTR_REQ, WRITE_REQ, RM_REQ, MOVE_REQ).
     #[brw(magic = 0x08u8)]
-    SuccessRes {
-        request_id: u32,
-    },
+    SuccessRes { request_id: u32 },
 
     #[brw(magic = 0x09u8)]
-    StatsReq {
-        request_id: u32,
-    },
+    StatsReq { request_id: u32 },
 
     #[brw(magic = 0x0Au8)]
     StatsRes {
@@ -198,16 +191,10 @@ pub enum Message {
     },
 
     #[brw(magic = 0x0Fu8)]
-    ReaddirReq {
-        request_id: u32,
-        inode: u64,
-    },
+    ReaddirReq { request_id: u32, inode: u64 },
 
     #[brw(magic = 0x10u8)]
-    RmReq {
-        request_id: u32,
-        inode: u64,
-    },
+    RmReq { request_id: u32, inode: u64 },
 
     #[brw(magic = 0x11u8)]
     MoveReq {

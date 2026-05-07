@@ -1,17 +1,57 @@
+use crate::{
+    fs::{FileAttr, FsBackend, from_unix},
+    protocol::{
+        ErrorCode, MAX_READ_RES_CHUNK, Message,
+        dir_entry::serialize_dir_entires,
+    },
+};
 use std::{
+    cmp::min,
     ffi::OsString,
     io::ErrorKind,
     os::unix::ffi::OsStringExt,
     path::{Path, PathBuf},
 };
-
-use crate::{
-    fs::{FileAttr, FsBackend, from_unix},
-    protocol::{ErrorCode, Message},
-};
-use tokio::sync::Mutex;
 use tokio::sync::mpsc;
+use tokio::{sync::Mutex, task::JoinSet};
 use tracing::*;
+
+fn assemble_read_res_chunks(
+    request_id: u32,
+    data: &[u8],
+    eof: bool,
+) -> Vec<Message> {
+    if data.is_empty() {
+        return vec![Message::ReadRes {
+            request_id,
+            total_length: 0,
+            eof,
+            chunk_offset: 0,
+            data: vec![],
+        }];
+    }
+
+    let mut chunks = Vec::new();
+
+    let mut head = 0;
+    while head < data.len() {
+        let remaining = data.len() - head;
+        let chunk_len = min(remaining, MAX_READ_RES_CHUNK);
+        let chunk = &data[head..head + chunk_len];
+
+        chunks.push(Message::ReadRes {
+            request_id,
+            total_length: data.len() as u64,
+            eof: eof && chunk_len == remaining,
+            chunk_offset: head as u64,
+            data: chunk.to_vec(),
+        });
+
+        head += chunk_len;
+    }
+
+    chunks
+}
 
 #[instrument(skip(replier, fs))]
 pub async fn handle_msg(
@@ -133,7 +173,39 @@ pub async fn handle_msg(
         }
 
         Message::ReaddirReq { request_id, inode } => {
-            todo!()
+            let mut fs = fs.lock().await;
+            let entries = match fs.read_dir(inode).await {
+                Ok(e) => e,
+                Err(e) => {
+                    let reply = Message::from_error(request_id, e);
+                    replier.send(reply).await.unwrap();
+                    return;
+                }
+            };
+
+            let buf = match serialize_dir_entires(&entries) {
+                Ok(b) => b,
+                Err(e) => {
+                    let reply = Message::Error {
+                        request_id,
+                        error_code: ErrorCode::Internal,
+                        message: e.to_string(),
+                    };
+                    replier.send(reply).await.unwrap();
+                    return;
+                }
+            };
+
+            let replies = assemble_read_res_chunks(request_id, &buf, false);
+            let mut reply_set = JoinSet::new();
+            for reply in replies {
+                let replier = replier.clone();
+                reply_set.spawn(async move {
+                    replier.send(reply).await.unwrap();
+                });
+            }
+
+            reply_set.join_all().await;
         }
 
         Message::RmReq { request_id, inode } => {

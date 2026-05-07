@@ -2,11 +2,13 @@ use super::{DirEntry, FileAttr, FsBackend, FsStats};
 use crate::{
     AzpfsReader, AzpfsWriter,
     fs::to_unix,
-    protocol::{ErrorCode, Message, MessageCodec},
+    protocol::{
+        ErrorCode, Message, MessageCodec, dir_entry::parse_dir_entries,
+    },
 };
 use futures::{SinkExt, StreamExt};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     io::{self, ErrorKind},
     os::unix::ffi::OsStrExt,
     path::Path,
@@ -72,6 +74,43 @@ async fn next_message(
                 return Err(msg.try_into().unwrap());
             }
             _ => return Ok(msg),
+        }
+    }
+
+    Err(ErrorKind::ConnectionReset.into())
+}
+
+/// Blocks to receive chunked read response data, reassembles it, and returns
+/// the underlying data
+async fn combine_read_chunks(
+    listener: &mut mpsc::UnboundedReceiver<Message>,
+) -> io::Result<Vec<u8>> {
+    let mut chunks = BTreeMap::new();
+    let mut received = 0;
+
+    while let Some(msg) = listener.recv().await {
+        match msg {
+            Message::ReadRes {
+                total_length,
+                chunk_offset,
+                data,
+                ..
+            } => {
+                received += data.len();
+                chunks.insert(chunk_offset, data);
+
+                if received == total_length as usize {
+                    return Ok(chunks
+                        .into_iter()
+                        .map(|(_, v)| v)
+                        .flatten()
+                        .collect());
+                }
+            }
+            Message::Error { .. } => {
+                return Err(msg.try_into().unwrap());
+            }
+            _ => continue,
         }
     }
 
@@ -325,7 +364,21 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
     }
 
     async fn read_dir(&mut self, inode: u64) -> io::Result<Vec<DirEntry>> {
-        todo!()
+        let mut listener = self
+            .send_msg(Message::ReaddirReq {
+                request_id: 0,
+                inode,
+            })
+            .await
+            .map_err(|e| io::Error::other(e))?;
+
+        let data = combine_read_chunks(&mut listener).await?;
+        match parse_dir_entries(&data) {
+            Ok(e) => Ok(e),
+            Err(e) => {
+                return Err(io::Error::other(e));
+            }
+        }
     }
 
     async fn remove(&mut self, inode: u64) -> io::Result<()> {

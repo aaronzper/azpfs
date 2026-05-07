@@ -1,10 +1,8 @@
+pub use crate::fs::{DirEntry, FileType};
+use binrw::{BinReaderExt, BinResult, BinWrite};
 use std::io::Cursor;
 
-use binrw::{BinReaderExt, BinResult};
-
-pub use crate::fs::{DirEntry, FileType};
-
-/// Parse a reassembled READDIR payload into directory entries.
+/// Parse a reassembled READDIR reply payload into directory entries.
 ///
 /// The `data` slice must be the fully reassembled payload from all READ_RES
 /// chunks for a given READDIR_REQ (chunks reassembled in chunk_offset order).
@@ -15,4 +13,14 @@ pub fn parse_dir_entries(data: &[u8]) -> BinResult<Vec<DirEntry>> {
         entries.push(cursor.read_be::<DirEntry>()?);
     }
     Ok(entries)
+}
+
+/// Serialize a list of directory entries into a READDIR reply payload, to be
+/// chunked and sent out
+pub fn serialize_dir_entires(entries: &[DirEntry]) -> BinResult<Vec<u8>> {
+    let mut cursor = Cursor::new(Vec::new());
+    for entry in entries {
+        entry.write(&mut cursor)?;
+    }
+    Ok(cursor.into_inner())
 }
