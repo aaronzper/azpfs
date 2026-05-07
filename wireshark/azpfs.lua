@@ -128,7 +128,7 @@ local f_data          = ProtoField.bytes("azpfs.data", "Data")
 
 -- WRITE_REQ
 local f_write_offset  = ProtoField.uint64("azpfs.write_offset", "Offset", base.DEC)
-local f_write_length  = ProtoField.uint16("azpfs.write_length", "Length", base.DEC)
+local f_write_length  = ProtoField.uint32("azpfs.write_length", "Length", base.DEC)
 local f_write_data    = ProtoField.bytes("azpfs.write_data", "Data")
 
 -- MOVE_REQ
@@ -243,10 +243,10 @@ local function get_message_length(tvb, offset)
         local chunk_len = bit.band(flags, 0x7FFF)
         return 23 + chunk_len, nil
 
-    elseif msg_type == 0x0E then -- WRITE_REQ: header=23, + length (u16 at offset+21)
-        if remaining < 23 then return nil, 23 end
-        local data_len = tvb(offset + 21, 2):uint()
-        return 23 + data_len, nil
+    elseif msg_type == 0x0E then -- WRITE_REQ: header=25, + length (u32 at offset+21)
+        if remaining < 25 then return nil, 25 end
+        local data_len = tvb(offset + 21, 4):uint()
+        return 25 + data_len, nil
 
     elseif msg_type == 0x11 then -- MOVE_REQ: header=22, + dest_filename_len (u8 at offset+21)
         if remaining < 22 then return nil, 22 end
@@ -581,10 +581,10 @@ local function dissect_message(tvb, offset, msg_len, pinfo, tree)
     elseif msg_type == 0x0E then -- WRITE_REQ
         subtree:add(f_inode, tvb(offset + 5, 8))
         subtree:add(f_write_offset, tvb(offset + 13, 8))
-        subtree:add(f_write_length, tvb(offset + 21, 2))
-        local dlen = tvb(offset + 21, 2):uint()
+        subtree:add(f_write_length, tvb(offset + 21, 4))
+        local dlen = tvb(offset + 21, 4):uint()
         if dlen > 0 then
-            subtree:add(f_write_data, tvb(offset + 23, dlen))
+            subtree:add(f_write_data, tvb(offset + 25, dlen))
         end
         info = string.format("WRITE_REQ inode=%s offset=%s len=%d",
             tostring(tvb(offset + 5, 8):uint64()),

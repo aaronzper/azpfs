@@ -191,8 +191,8 @@ pub enum Message {
         inode: u64,
         offset: u64,
         #[br(temp)]
-        #[bw(calc = data.len() as u16)]
-        length: u16,
+        #[bw(calc = data.len() as u32)]
+        length: u32,
         #[br(count = length)]
         data: Vec<u8>,
     },
