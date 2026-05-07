@@ -210,8 +210,30 @@ impl FsBackend for DiskFs {
 
     async fn read_dir(&mut self, inode: u64) -> Result<Vec<DirEntry>> {
         let path = self.get_path(inode)?;
+
+        // do this up here so exit early if not a dir
         let mut dir = fs::read_dir(path).await?;
-        let mut entries = Vec::new();
+
+        let parent_inode = match path.parent() {
+            Some(parent) => {
+                fs::metadata(parent).await.map(|m| m.ino()).unwrap_or(inode)
+            }
+            None => inode,
+        };
+
+        let mut entries = vec![
+            DirEntry {
+                inode,
+                file_type: FileType::Directory,
+                filename: b".".to_vec(),
+            },
+            DirEntry {
+                inode: parent_inode,
+                file_type: FileType::Directory,
+                filename: b"..".to_vec(),
+            },
+        ];
+
         while let Some(entry) = dir.next_entry().await? {
             entries.push(DirEntry {
                 inode: entry.ino(),

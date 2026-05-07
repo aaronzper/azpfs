@@ -441,19 +441,19 @@ async fn test_write_then_read_roundtrip() {
 async fn test_read_dir_empty_root() {
     let (mut handler, _dir) = setup().await;
 
-    // TempDir is freshly created — no entries beyond . and ..
     let entries = t(handler.read_dir(super::ROOT_INODE))
         .await
         .expect("read_dir failed");
 
-    // All names should be . or ..
-    for e in &entries {
-        let name = std::str::from_utf8(&e.filename).unwrap_or("");
-        assert!(
-            name == "." || name == "..",
-            "unexpected entry: {name}"
-        );
-    }
+    assert_eq!(entries.len(), 2, "expected exactly . and .. entries, got {entries:?}");
+
+    let names: Vec<&str> = entries
+        .iter()
+        .filter_map(|e| std::str::from_utf8(&e.filename).ok())
+        .collect();
+
+    assert!(names.contains(&"."), "missing . entry");
+    assert!(names.contains(&".."), "missing .. entry");
 }
 
 #[tokio::test]
