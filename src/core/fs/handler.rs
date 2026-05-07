@@ -43,8 +43,9 @@ async fn receive_loop<R: AzpfsReader>(
     }
 }
 
+/// Blocks until a success message on the given listener is received
 async fn await_success(
-    mut listener: mpsc::UnboundedReceiver<Message>,
+    listener: &mut mpsc::UnboundedReceiver<Message>,
 ) -> io::Result<()> {
     while let Some(msg) = listener.recv().await {
         match msg {
@@ -55,6 +56,22 @@ async fn await_success(
                 return Err(msg.try_into().unwrap());
             }
             _ => continue,
+        }
+    }
+
+    Err(ErrorKind::ConnectionReset.into())
+}
+
+/// Blocks until a non-error message on the given listener is received
+async fn next_message(
+    listener: &mut mpsc::UnboundedReceiver<Message>,
+) -> io::Result<Message> {
+    if let Some(msg) = listener.recv().await {
+        match msg {
+            Message::Error { .. } => {
+                return Err(msg.try_into().unwrap());
+            }
+            _ => return Ok(msg),
         }
     }
 
@@ -161,20 +178,15 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
             .await
             .map_err(|e| io::Error::other(e))?;
 
-        while let Some(msg) = listener.recv().await {
-            match msg {
+        loop {
+            match next_message(&mut listener).await? {
                 Message::LookupRes {
                     request_id: _,
                     inode,
                 } => return Ok(inode),
-                Message::Error { .. } => {
-                    return Err(msg.try_into().unwrap());
-                }
                 _ => continue,
             }
         }
-
-        Err(ErrorKind::ConnectionReset.into())
     }
 
     async fn get_attr(&mut self, inode: u64) -> io::Result<FileAttr> {
@@ -185,19 +197,14 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
             })
             .await?;
 
-        while let Some(msg) = listener.recv().await {
-            match msg {
-                Message::FileAttrRes { .. } => {
+        loop {
+            match next_message(&mut listener).await? {
+                msg @ Message::FileAttrRes { .. } => {
                     return Ok(FileAttr::from_message(msg).unwrap());
-                }
-                Message::Error { .. } => {
-                    return Err(msg.try_into().unwrap());
                 }
                 _ => continue,
             }
         }
-
-        Err(ErrorKind::ConnectionReset.into())
     }
 
     async fn set_attr(
@@ -210,7 +217,7 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
         uid: Option<u32>,
         gid: Option<u32>,
     ) -> io::Result<()> {
-        let listener = self
+        let mut listener = self
             .send_msg(Message::SetAttrReq {
                 request_id: 0,
                 inode,
@@ -223,7 +230,7 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
             })
             .await?;
 
-        await_success(listener).await
+        await_success(&mut listener).await
     }
 
     async fn stats(&mut self) -> io::Result<FsStats> {
