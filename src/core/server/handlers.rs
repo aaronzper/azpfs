@@ -81,7 +81,12 @@ pub async fn handle_msg(
         }
 
         Message::StatsReq { request_id } => {
-            todo!()
+            let mut fs = fs.lock().await;
+            let reply = match fs.stats().await {
+                Ok(stats) => stats.into_message(request_id),
+                Err(e) => Message::from_error(request_id, e),
+            };
+            replier.send(reply).await.unwrap();
         }
 
         Message::CreateReq {

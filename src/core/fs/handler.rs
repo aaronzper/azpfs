@@ -234,7 +234,17 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
     }
 
     async fn stats(&mut self) -> io::Result<FsStats> {
-        todo!()
+        let mut listener =
+            self.send_msg(Message::StatsReq { request_id: 0 }).await?;
+
+        loop {
+            match next_message(&mut listener).await? {
+                msg @ Message::StatsRes { .. } => {
+                    return Ok(FsStats::from_message(msg).unwrap());
+                }
+                _ => continue,
+            }
+        }
     }
 
     async fn create_file(
