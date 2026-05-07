@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
+    fs::{FileAttr, FsBackend, from_unix},
     protocol::{ErrorCode, Message},
-    fs::FsBackend,
 };
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
@@ -42,24 +42,18 @@ pub async fn handle_msg(
             let mut fs = fs.lock().await;
             let reply = match fs.lookup(dir_inode, &filename_path).await {
                 Ok(inode) => Message::LookupRes { request_id, inode },
-                Err(e) => match e.kind() {
-                    ErrorKind::NotFound => Message::Error {
-                        request_id,
-                        error_code: ErrorCode::NotFound,
-                        message: e.to_string(),
-                    },
-                    _ => Message::Error {
-                        request_id,
-                        error_code: ErrorCode::Internal,
-                        message: e.to_string(),
-                    },
-                },
+                Err(e) => Message::from_error(request_id, e),
             };
             replier.send(reply).await.unwrap();
         }
 
         Message::GetAttrReq { request_id, inode } => {
-            todo!()
+            let mut fs = fs.lock().await;
+            let reply = match fs.get_attr(inode).await {
+                Ok(attr) => attr.into_message(request_id),
+                Err(e) => Message::from_error(request_id, e),
+            };
+            replier.send(reply).await.unwrap();
         }
 
         Message::SetAttrReq {
@@ -72,7 +66,18 @@ pub async fn handle_msg(
             uid,
             gid,
         } => {
-            todo!()
+            let atime = atime.map(|x| from_unix(x));
+            let mtime = mtime.map(|x| from_unix(x));
+
+            let mut fs = fs.lock().await;
+            let reply = match fs
+                .set_attr(inode, size, atime, mtime, permissions, uid, gid)
+                .await
+            {
+                Ok(()) => Message::SuccessRes { request_id },
+                Err(e) => Message::from_error(request_id, e),
+            };
+            replier.send(reply).await.unwrap();
         }
 
         Message::StatsReq { request_id } => {

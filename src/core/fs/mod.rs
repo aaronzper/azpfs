@@ -1,18 +1,21 @@
+use crate::protocol::Message;
+use binrw::binrw;
+use std::{
+    fmt::Debug,
+    fs,
+    future::Future,
+    io::Result,
+    os::unix::fs::FileTypeExt,
+    path::Path,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use tracing::*;
+
 mod disk;
 mod handler;
 
 pub use disk::DiskFs;
 pub use handler::ClientHandler;
-
-use crate::protocol::Message;
-use binrw::binrw;
-use std::{
-    fmt::Debug,
-    future::Future,
-    io::Result,
-    path::Path,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
 
 #[binrw]
 #[brw(big, repr = u8)]
@@ -44,6 +47,29 @@ impl TryFrom<u8> for FileType {
     }
 }
 
+impl From<fs::FileType> for FileType {
+    fn from(value: fs::FileType) -> Self {
+        if value.is_fifo() {
+            Self::Pipe
+        } else if value.is_char_device() {
+            Self::CharDevice
+        } else if value.is_block_device() {
+            Self::BlockDevice
+        } else if value.is_dir() {
+            Self::Directory
+        } else if value.is_file() {
+            Self::RegularFile
+        } else if value.is_symlink() {
+            Self::Symlink
+        } else if value.is_socket() {
+            Self::Socket
+        } else {
+            error!(type=?value, "Invalid fs::FileType. This shouldn't happen.");
+            panic!("Unrecoverable error")
+        }
+    }
+}
+
 #[binrw]
 #[brw(big)]
 #[derive(Debug, Clone)]
@@ -59,11 +85,11 @@ pub struct DirEntry {
     pub filename: Vec<u8>,
 }
 
-fn to_unix(t: SystemTime) -> u64 {
+pub fn to_unix(t: SystemTime) -> u64 {
     t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 
-fn from_unix(secs: u64) -> SystemTime {
+pub fn from_unix(secs: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(secs)
 }
 
@@ -265,10 +291,8 @@ pub trait FsBackend: Debug + Send + Sync + 'static {
 
     /// Removes the given inode. If invoked on a directory, the directory and
     /// all its contents are also deleted.
-    fn remove(
-        &mut self,
-        inode: u64,
-    ) -> impl Future<Output = Result<()>> + Send;
+    fn remove(&mut self, inode: u64)
+    -> impl Future<Output = Result<()>> + Send;
 
     /// Moves/renames the given inode. If the destination exists and is a file,
     /// it is overwritten. If it's a directory, this errors. If the source and

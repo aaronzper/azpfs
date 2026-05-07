@@ -1,9 +1,9 @@
 use super::{DirEntry, FileAttr, FsBackend, FsStats};
 use crate::{
     AzpfsReader, AzpfsWriter,
+    fs::to_unix,
     protocol::{ErrorCode, Message, MessageCodec},
 };
-use binrw::Error;
 use futures::{SinkExt, StreamExt};
 use std::{
     collections::HashMap,
@@ -43,6 +43,24 @@ async fn receive_loop<R: AzpfsReader>(
     }
 }
 
+async fn await_success(
+    mut listener: mpsc::UnboundedReceiver<Message>,
+) -> io::Result<()> {
+    while let Some(msg) = listener.recv().await {
+        match msg {
+            Message::SuccessRes { .. } => {
+                return Ok(());
+            }
+            Message::Error { .. } => {
+                return Err(msg.try_into().unwrap());
+            }
+            _ => continue,
+        }
+    }
+
+    Err(ErrorKind::ConnectionReset.into())
+}
+
 #[derive(Debug)]
 /// Client-side AZPFS protocol handler
 pub struct ClientHandler<W: AzpfsWriter> {
@@ -74,19 +92,20 @@ impl<W: AzpfsWriter> ClientHandler<W> {
     async fn send_msg(
         &mut self,
         mut msg: Message,
-    ) -> Result<mpsc::UnboundedReceiver<Message>, Error> {
+    ) -> io::Result<mpsc::UnboundedReceiver<Message>> {
         let id = self.next_id;
         msg.set_request_id(id);
         let listener = self.register_listener(id);
         self.next_id = self.next_id.wrapping_add(1); // TODO check for collision
 
         debug!(?msg, "Sending");
-        self.writer.send(msg).await?;
-
-        Ok(listener)
+        match self.writer.send(msg).await {
+            Ok(_) => Ok(listener),
+            Err(e) => Err(io::Error::new(ErrorKind::Other, e)),
+        }
     }
 
-    pub async fn new<R: AzpfsReader>(r: R, w: W) -> Result<Self, Error> {
+    pub async fn new<R: AzpfsReader>(r: R, w: W) -> io::Result<Self> {
         let reader = FramedRead::new(r, MessageCodec);
         let writer = FramedWrite::new(w, MessageCodec);
 
@@ -106,7 +125,7 @@ impl<W: AzpfsWriter> ClientHandler<W> {
     }
 
     /// Conducts the INIT handshake
-    async fn init(&mut self) -> Result<(), Error> {
+    async fn init(&mut self) -> io::Result<()> {
         let mut init_listener = self
             .send_msg(Message::InitReq {
                 request_id: 0,
@@ -148,16 +167,8 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
                     request_id: _,
                     inode,
                 } => return Ok(inode),
-                Message::Error {
-                    error_code,
-                    message,
-                    ..
-                } => {
-                    let kind = match error_code {
-                        ErrorCode::NotFound => io::ErrorKind::NotFound,
-                        _ => io::ErrorKind::Other,
-                    };
-                    return Err(io::Error::new(kind, message));
+                Message::Error { .. } => {
+                    return Err(msg.try_into().unwrap());
                 }
                 _ => continue,
             }
@@ -167,7 +178,26 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
     }
 
     async fn get_attr(&mut self, inode: u64) -> io::Result<FileAttr> {
-        todo!()
+        let mut listener = self
+            .send_msg(Message::GetAttrReq {
+                request_id: 0,
+                inode,
+            })
+            .await?;
+
+        while let Some(msg) = listener.recv().await {
+            match msg {
+                Message::FileAttrRes { .. } => {
+                    return Ok(FileAttr::from_message(msg).unwrap());
+                }
+                Message::Error { .. } => {
+                    return Err(msg.try_into().unwrap());
+                }
+                _ => continue,
+            }
+        }
+
+        Err(ErrorKind::ConnectionReset.into())
     }
 
     async fn set_attr(
@@ -180,7 +210,20 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
         uid: Option<u32>,
         gid: Option<u32>,
     ) -> io::Result<()> {
-        todo!()
+        let listener = self
+            .send_msg(Message::SetAttrReq {
+                request_id: 0,
+                inode,
+                size,
+                atime: atime.map(|x| to_unix(x)),
+                mtime: mtime.map(|x| to_unix(x)),
+                permissions,
+                uid,
+                gid,
+            })
+            .await?;
+
+        await_success(listener).await
     }
 
     async fn stats(&mut self) -> io::Result<FsStats> {
