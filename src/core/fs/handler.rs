@@ -1,4 +1,4 @@
-use super::FsBackend;
+use super::{DirEntry, FileAttr, FsBackend, FsStats};
 use crate::{
     AzpfsReader, AzpfsWriter,
     protocol::{ErrorCode, Message, MessageCodec},
@@ -164,5 +164,80 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
         }
 
         Err(ErrorKind::ConnectionReset.into())
+    }
+
+    async fn get_attr(&mut self, inode: u64) -> io::Result<FileAttr> {
+        todo!()
+    }
+
+    async fn set_attr(
+        &mut self,
+        inode: u64,
+        size: Option<u64>,
+        atime: Option<std::time::SystemTime>,
+        mtime: Option<std::time::SystemTime>,
+        permissions: Option<u16>,
+        uid: Option<u32>,
+        gid: Option<u32>,
+    ) -> io::Result<()> {
+        todo!()
+    }
+
+    async fn stats(&mut self) -> io::Result<FsStats> {
+        todo!()
+    }
+
+    async fn create_file(
+        &mut self,
+        parent_inode: u64,
+        perms: u16,
+        unix_flags: u32,
+        filename: &Path,
+    ) -> io::Result<u64> {
+        todo!()
+    }
+
+    async fn create_dir(
+        &mut self,
+        parent_inode: u64,
+        permissions: u16,
+        dir_name: &Path,
+    ) -> io::Result<u64> {
+        todo!()
+    }
+
+    async fn read(
+        &mut self,
+        inode: u64,
+        offset: u64,
+        len: u64,
+    ) -> io::Result<Vec<u8>> {
+        todo!()
+    }
+
+    async fn write(
+        &mut self,
+        inode: u64,
+        offset: u64,
+        data: &[u8],
+    ) -> io::Result<()> {
+        todo!()
+    }
+
+    async fn read_dir(&mut self, inode: u64) -> io::Result<Vec<DirEntry>> {
+        todo!()
+    }
+
+    async fn remove(&mut self, inode: u64) -> io::Result<()> {
+        todo!()
+    }
+
+    async fn rename(
+        &mut self,
+        inode: u64,
+        dest_parent_inode: u64,
+        dest_filename: &Path,
+    ) -> io::Result<()> {
+        todo!()
     }
 }

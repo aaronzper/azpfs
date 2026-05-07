@@ -1,6 +1,6 @@
 use binrw::binrw;
 
-use super::dir_entry::FileType;
+use crate::fs::FileType;
 use super::error::ErrorCode;
 
 #[binrw]
