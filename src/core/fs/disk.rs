@@ -13,7 +13,10 @@ use std::{
     path::{Path, PathBuf},
     time::SystemTime,
 };
-use tokio::fs;
+use tokio::{
+    fs,
+    io::{AsyncReadExt, AsyncSeekExt},
+};
 use tracing::*;
 
 #[derive(Debug)]
@@ -181,7 +184,15 @@ impl FsBackend for DiskFs {
         offset: u64,
         len: u64,
     ) -> Result<Vec<u8>> {
-        todo!()
+        let path = self.get_path(inode)?;
+        let mut file = fs::File::open(path).await?;
+
+        let mut buf = vec![0; len as usize];
+        file.seek(io::SeekFrom::Start(offset)).await?;
+        let n_read = file.read(&mut buf).await?;
+        buf.truncate(n_read);
+
+        Ok(buf)
     }
 
     async fn write(

@@ -154,7 +154,26 @@ pub async fn handle_msg(
             offset,
             length,
         } => {
-            todo!()
+            let mut fs = fs.lock().await;
+            let buf = match fs.read(inode, offset, length).await {
+                Ok(b) => b,
+                Err(e) => {
+                    let reply = Message::from_error(request_id, e);
+                    replier.send(reply).await.unwrap();
+                    return;
+                }
+            };
+
+            let replies = assemble_read_res_chunks(request_id, &buf);
+            let mut reply_set = JoinSet::new();
+            for reply in replies {
+                let replier = replier.clone();
+                reply_set.spawn(async move {
+                    replier.send(reply).await.unwrap();
+                });
+            }
+
+            reply_set.join_all().await;
         }
 
         Message::WriteReq {

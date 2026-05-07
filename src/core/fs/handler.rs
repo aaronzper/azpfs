@@ -349,9 +349,20 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
         &mut self,
         inode: u64,
         offset: u64,
-        len: u64,
+        length: u64,
     ) -> io::Result<Vec<u8>> {
-        todo!()
+        let mut listener = self
+            .send_msg(Message::ReadReq {
+                request_id: 0,
+                inode,
+                offset,
+                length,
+            })
+            .await
+            .map_err(|e| io::Error::other(e))?;
+
+        let data = combine_read_chunks(&mut listener).await?;
+        Ok(data)
     }
 
     async fn write(
