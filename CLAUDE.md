@@ -30,11 +30,11 @@ src/server/main.rs  # binary azpfs-server — listens on TCP, delegates to libaz
 cargo build
 cargo test
 
-# Run server (serves <root_dir> over TCP on <port>)
-cargo run --bin azpfs-server -- <port> <root_dir>
+# Run server (serves <root_dir> over TCP on <addr:port>)
+cargo run --bin azpfs-server -- <addr:port> <root_dir>
 
-# Mount client (mounts at <mountpoint>, connecting to server at <host>:<port>)
-cargo run --bin azpfsd -- <host>:<port> <mountpoint>
+# Mount client (mounts at <mountpoint>, connecting to server at <addr:port>)
+cargo run --bin azpfsd -- <mountpoint> <addr:port>
 ```
 
 ## Testing
@@ -47,22 +47,27 @@ All client-server tests use `tokio::io::duplex` to link a `ClientHandler` to a `
 task in-process — no real TCP, no FUSE mount needed. Use the `setup()` helper:
 
 ```rust
-async fn setup() -> ClientHandler<impl AzpfsWriter> {
+async fn setup() -> (ClientHandler<BoxWriter>, TempDir) {
+    let dir = TempDir::new().expect("failed to create temp dir");
+    let fs = Arc::new(Mutex::new(DiskFs::new(dir.path().to_path_buf())));
     let (client_reader, server_writer) = tokio::io::duplex(4096);
     let (server_reader, client_writer) = tokio::io::duplex(4096);
-    tokio::spawn(handle_client(server_reader, server_writer));
-    timeout(Duration::from_secs(5), ClientHandler::new(client_reader, client_writer))
+    tokio::spawn(handle_client(server_reader, server_writer, fs));
+    let handler = timeout(Duration::from_secs(5), ClientHandler::new(client_reader, client_writer))
         .await
         .expect("setup timed out")
-        .expect("ClientHandler::new failed")
+        .expect("ClientHandler::new failed");
+    (handler, dir)
 }
 ```
 
-The two pairs are **crossed**: client reads from one end, server writes to the other, and vice
+`handle_client` takes a third argument: an `Arc<Mutex<impl FsBackend>>`. The `TempDir` must be
+kept alive for the duration of the test — dropping it deletes the backing directory. The two
+duplex pairs are **crossed**: client reads from one end, server writes to the other, and vice
 versa. `ClientHandler::new` performs the INIT handshake internally, so `setup()` returning `Ok`
 already validates the handshake. Each subsequent test:
-1. Calls `let mut handler = setup().await;`
-2. Calls a `ClientHandler` method (to be added as operations are implemented)
+1. Calls `let (mut handler, dir) = setup().await;`
+2. Calls a `ClientHandler` method
 3. Asserts the returned value
 
 Always wrap async test operations in `tokio::time::timeout` to prevent tests from hanging
@@ -136,6 +141,7 @@ Bit 0 = Size, Bit 1 = Access Time, Bit 2 = Modification Time, Bit 3 = Permission
 | `0x01` | `E_INVALID` | Malformed or unprocessable request |
 | `0x02` | `E_NOTFOUND` | Requested inode does not exist |
 | `0x03` | `E_EXISTS` | Inode already exists at the destination |
+| `0x04` | `E_UNSUPPORTED` | Operation not supported by server |
 
 #### `MOVE_REQ` semantics
 - Destination exists and is a **directory** → `E_EXISTS`
@@ -151,17 +157,22 @@ No `Transport` trait — instead, `AzpfsReader` and `AzpfsWriter` are blanket tr
 `AsyncRead`/`AsyncWrite` + bounds (`Unpin + Debug + Send + Sync + 'static`). Anything satisfying
 those bounds (real `TcpStream` halves, `tokio::io::duplex` halves) works without any wrapper.
 
+### `FsBackend` trait (`src/core/fs/`)
+- `FsBackend` in `mod.rs` is a shared async trait with methods for all filesystem operations
+- `DiskFs` in `disk.rs` implements it server-side: maps inode numbers → `PathBuf`s; inode entries are lazily populated on `lookup`
+- `ClientHandler` in `handler.rs` also implements it client-side by issuing protocol requests
+
 ### Server (`src/core/server/`)
 - `handle_client<R, W>(r: R, w: W)` — per-connection entry point, spawned by Tokio for each TCP client
 - Internally: spawns a writer task draining an `mpsc::channel(32)`, and a reader loop that spawns
-  a task per message calling `handle_msg(msg, tx)`
-- `handle_msg` in `handlers.rs` dispatches on message type; only `InitReq` is currently implemented
+  a task per message calling `handle_msg(msg, tx, fs)`
+- `handle_msg` in `handlers.rs` dispatches on all message types (all operations implemented)
 
 ### Client (`src/core/client/`)
-- `ClientHandler<W: AzpfsWriter>` — generic over the writer half only; takes a separate reader on construction
+- `ClientHandler<W: AzpfsWriter>` in `fs/handler.rs` — implements `FsBackend`; generic over the writer half
 - `ClientHandler::new(r, w)` — spawns a `receive_loop` task, then performs the INIT handshake
 - `receive_loop` routes incoming messages to per-request `mpsc::unbounded_channel` receivers keyed by request ID
-- `FUSEFilesystem<W>` in `fuse.rs` wraps `ClientHandler` and implements `fuser::Filesystem`
+- `FUSEFilesytem<F: FsBackend>` in `client/fuse.rs` wraps any `FsBackend` in a `Mutex` and implements `fuser::Filesystem`; `getattr`/`readdir` are currently stubbed with hardcoded values
 
 ## FUSE operations in scope
 
