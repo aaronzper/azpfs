@@ -249,12 +249,32 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
 
     async fn create_file(
         &mut self,
-        parent_inode: u64,
-        perms: u16,
+        dir_inode: u64,
+        permissions: u16,
         unix_flags: u32,
         filename: &Path,
     ) -> io::Result<u64> {
-        todo!()
+        let mut listener = self
+            .send_msg(Message::CreateReq {
+                request_id: 0,
+                dir_inode,
+                permissions,
+                unix_flags,
+                is_directory: false,
+                filename: filename.as_os_str().as_bytes().to_vec(),
+            })
+            .await
+            .map_err(|e| io::Error::other(e))?;
+
+        loop {
+            match next_message(&mut listener).await? {
+                Message::LookupRes {
+                    request_id: _,
+                    inode,
+                } => return Ok(inode),
+                _ => continue,
+            }
+        }
     }
 
     async fn create_dir(
@@ -263,7 +283,27 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
         permissions: u16,
         dir_name: &Path,
     ) -> io::Result<u64> {
-        todo!()
+        let mut listener = self
+            .send_msg(Message::CreateReq {
+                request_id: 0,
+                dir_inode: parent_inode,
+                permissions,
+                unix_flags: 0,
+                is_directory: true,
+                filename: dir_name.as_os_str().as_bytes().to_vec(),
+            })
+            .await
+            .map_err(|e| io::Error::other(e))?;
+
+        loop {
+            match next_message(&mut listener).await? {
+                Message::LookupRes {
+                    request_id: _,
+                    inode,
+                } => return Ok(inode),
+                _ => continue,
+            }
+        }
     }
 
     async fn read(

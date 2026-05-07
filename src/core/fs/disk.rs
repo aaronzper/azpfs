@@ -129,7 +129,28 @@ impl FsBackend for DiskFs {
         unix_flags: u32,
         filename: &Path,
     ) -> Result<u64> {
-        todo!()
+        let mut path = self.get_path(parent_inode)?.to_path_buf();
+        path.push(filename);
+
+        let mut opts = fs::OpenOptions::new();
+        opts.write(true).create(true);
+        if unix_flags & libc::O_EXCL as u32 != 0 {
+            opts.create_new(true);
+        }
+        if unix_flags & libc::O_TRUNC as u32 != 0 {
+            opts.truncate(true);
+        }
+        let file = opts.open(&path).await?;
+
+        fs::set_permissions(
+            &path,
+            std::fs::Permissions::from_mode(perms as u32),
+        )
+        .await?;
+
+        let ino = file.metadata().await?.ino();
+        self.inode_map.entry(ino).or_insert(path);
+        Ok(ino)
     }
 
     async fn create_dir(
@@ -138,7 +159,15 @@ impl FsBackend for DiskFs {
         permissions: u16,
         dir_name: &Path,
     ) -> Result<u64> {
-        todo!()
+        let mut path = self.get_path(parent_inode)?.to_path_buf();
+        path.push(dir_name);
+
+        fs::create_dir(&path).await?;
+        fs::set_permissions(&path, std::fs::Permissions::from_mode(permissions as u32)).await?;
+
+        let ino = fs::metadata(&path).await?.ino();
+        self.inode_map.entry(ino).or_insert(path);
+        Ok(ino)
     }
 
     async fn read(

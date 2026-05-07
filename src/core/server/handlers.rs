@@ -97,7 +97,21 @@ pub async fn handle_msg(
             is_directory,
             filename,
         } => {
-            todo!()
+            let filename = PathBuf::from(OsString::from_vec(filename));
+            let mut fs = fs.lock().await;
+
+            let result = if is_directory {
+                fs.create_dir(dir_inode, permissions, &filename).await
+            } else {
+                fs.create_file(dir_inode, permissions, unix_flags, &filename)
+                    .await
+            };
+
+            let reply = match result {
+                Ok(inode) => Message::LookupRes { request_id, inode },
+                Err(e) => Message::from_error(request_id, e),
+            };
+            replier.send(reply).await.unwrap();
         }
 
         Message::ReadReq {

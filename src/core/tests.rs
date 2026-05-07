@@ -283,7 +283,13 @@ async fn test_create_file() {
             .expect("create_file failed");
 
     assert!(ino > 0);
-    assert!(dir.path().join("new.txt").is_file());
+    let meta = std::fs::metadata(dir.path().join("new.txt")).unwrap();
+    assert!(meta.is_file());
+    assert_eq!(meta.mode() & 0o777, 0o644);
+
+    let attr = t(handler.get_attr(ino)).await.expect("get_attr failed");
+    assert_eq!(attr.file_type, FileType::RegularFile);
+    assert_eq!(attr.permissions as u32 & 0o777, 0o644);
 }
 
 #[tokio::test]
@@ -296,7 +302,13 @@ async fn test_create_dir() {
             .expect("create_dir failed");
 
     assert!(ino > 0);
-    assert!(dir.path().join("newdir").is_dir());
+    let meta = std::fs::metadata(dir.path().join("newdir")).unwrap();
+    assert!(meta.is_dir());
+    assert_eq!(meta.mode() & 0o777, 0o755);
+
+    let attr = t(handler.get_attr(ino)).await.expect("get_attr failed");
+    assert_eq!(attr.file_type, FileType::Directory);
+    assert_eq!(attr.permissions as u32 & 0o777, 0o755);
 }
 
 #[tokio::test]
