@@ -150,6 +150,8 @@ pub async fn handle_msg(
         }
 
         // Client sent a response message for some reason, ignore
-        _ => (),
+        msg @ _ => {
+            warn!(?msg, "Received spurious response message");
+        }
     }
 }
