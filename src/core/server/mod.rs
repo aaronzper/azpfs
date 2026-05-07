@@ -1,5 +1,9 @@
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
 use crate::{
     AzpfsReader, AzpfsWriter,
+    fs::FsBackend,
     protocol::{Message, MessageCodec},
     server::handlers::handle_msg,
 };
@@ -10,9 +14,13 @@ use tracing::*;
 
 mod handlers;
 
-#[instrument]
+#[instrument(skip(fs))]
 /// Handles receiving and sending messages for a single client
-pub async fn handle_client<R: AzpfsReader, W: AzpfsWriter>(r: R, w: W) {
+pub async fn handle_client<R: AzpfsReader, W: AzpfsWriter>(
+    r: R,
+    w: W,
+    fs: Arc<Mutex<impl FsBackend>>,
+) {
     let (tx, mut rx) = mpsc::channel(32);
     let mut writer = FramedWrite::new(w, MessageCodec);
     tokio::spawn(
@@ -30,6 +38,7 @@ pub async fn handle_client<R: AzpfsReader, W: AzpfsWriter>(r: R, w: W) {
     let mut reader = FramedRead::new(r, MessageCodec);
     while let Some(msg) = reader.next().await {
         let tx = tx.clone();
+        let fs = Arc::clone(&fs);
         tokio::spawn(
             async move {
                 let Ok(msg) = msg else {
@@ -38,7 +47,7 @@ pub async fn handle_client<R: AzpfsReader, W: AzpfsWriter>(r: R, w: W) {
                 };
                 debug!(?msg, "Received");
 
-                handle_msg(msg, tx).await;
+                handle_msg(msg, tx, &fs).await;
             }
             .instrument(Span::current()),
         );

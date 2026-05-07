@@ -1,5 +1,4 @@
 mod fuse;
-mod handler;
 
+pub use crate::fs::ClientHandler;
 pub use fuse::FUSEFilesytem;
-pub use handler::ClientHandler;

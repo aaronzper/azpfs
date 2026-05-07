@@ -1,7 +1,12 @@
 use clap::Parser;
+use libazpfs::fs::DiskFs;
 use libazpfs::server::handle_client;
-use std::{net::SocketAddr, path::PathBuf};
-use tokio::net::TcpListener;
+use std::{
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
+};
+use tokio::{net::TcpListener, sync::Mutex};
 use tracing::*;
 
 #[derive(Parser)]
@@ -38,11 +43,14 @@ async fn main() -> std::io::Result<()> {
     let listener = TcpListener::bind(args.bind_address).await?;
     info!(binding = ?listener.local_addr(), "Server started!");
 
+    let fs = Arc::new(Mutex::new(DiskFs::new(args.root_path)));
+
     loop {
+        let fs = Arc::clone(&fs);
         let (sock, _) = listener.accept().await?;
         tokio::spawn(async move {
             let (r, w) = sock.into_split();
-            handle_client(r, w).await;
+            handle_client(r, w, fs).await;
         });
     }
 }

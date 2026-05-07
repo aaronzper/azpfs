@@ -1,11 +1,15 @@
+use super::FsBackend;
 use crate::{
     AzpfsReader, AzpfsWriter,
-    protocol::{Message, MessageCodec},
+    protocol::{ErrorCode, Message, MessageCodec},
 };
 use binrw::Error;
 use futures::{SinkExt, StreamExt};
 use std::{
     collections::HashMap,
+    io::{self, ErrorKind},
+    os::unix::ffi::OsStrExt,
+    path::Path,
     sync::{Arc, Mutex},
 };
 use tokio::sync::mpsc;
@@ -82,6 +86,25 @@ impl<W: AzpfsWriter> ClientHandler<W> {
         Ok(listener)
     }
 
+    pub async fn new<R: AzpfsReader>(r: R, w: W) -> Result<Self, Error> {
+        let reader = FramedRead::new(r, MessageCodec);
+        let writer = FramedWrite::new(w, MessageCodec);
+
+        let mut handler = Self {
+            writer,
+            next_id: 0,
+            reply_listeners: Arc::new(Mutex::new(HashMap::new())),
+        };
+
+        let reply_listeners = Arc::clone(&handler.reply_listeners);
+        tokio::spawn(
+            async move { receive_loop(reader, reply_listeners).await },
+        );
+
+        handler.init().await?;
+        Ok(handler)
+    }
+
     /// Conducts the INIT handshake
     async fn init(&mut self) -> Result<(), Error> {
         let mut init_listener = self
@@ -102,23 +125,44 @@ impl<W: AzpfsWriter> ClientHandler<W> {
             todo!()
         }
     }
+}
 
-    pub async fn new<R: AzpfsReader>(r: R, w: W) -> Result<Self, Error> {
-        let reader = FramedRead::new(r, MessageCodec);
-        let writer = FramedWrite::new(w, MessageCodec);
+impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
+    async fn lookup(
+        &mut self,
+        dir_inode: u64,
+        filename: &Path,
+    ) -> io::Result<u64> {
+        let mut listener = self
+            .send_msg(Message::LookupReq {
+                request_id: 0,
+                dir_inode,
+                filename: filename.as_os_str().as_bytes().to_vec(),
+            })
+            .await
+            .map_err(|e| io::Error::other(e))?;
 
-        let mut handler = Self {
-            writer,
-            next_id: 0,
-            reply_listeners: Arc::new(Mutex::new(HashMap::new())),
-        };
+        while let Some(msg) = listener.recv().await {
+            match msg {
+                Message::LookupRes {
+                    request_id: _,
+                    inode,
+                } => return Ok(inode),
+                Message::Error {
+                    error_code,
+                    message,
+                    ..
+                } => {
+                    let kind = match error_code {
+                        ErrorCode::NotFound => io::ErrorKind::NotFound,
+                        _ => io::ErrorKind::Other,
+                    };
+                    return Err(io::Error::new(kind, message));
+                }
+                _ => continue,
+            }
+        }
 
-        let reply_listeners = Arc::clone(&handler.reply_listeners);
-        tokio::spawn(
-            async move { receive_loop(reader, reply_listeners).await },
-        );
-
-        handler.init().await?;
-        Ok(handler)
+        Err(ErrorKind::ConnectionReset.into())
     }
 }

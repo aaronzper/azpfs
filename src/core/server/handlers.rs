@@ -1,9 +1,24 @@
-use crate::protocol::{ErrorCode, Message};
+use std::{
+    ffi::OsString,
+    io::ErrorKind,
+    os::unix::ffi::OsStringExt,
+    path::{Path, PathBuf},
+};
+
+use crate::{
+    protocol::{ErrorCode, Message},
+    fs::FsBackend,
+};
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tracing::*;
 
-#[instrument]
-pub async fn handle_msg(msg: Message, replier: mpsc::Sender<Message>) {
+#[instrument(skip(replier, fs))]
+pub async fn handle_msg(
+    msg: Message,
+    replier: mpsc::Sender<Message>,
+    fs: &Mutex<impl FsBackend>,
+) {
     match msg {
         Message::InitReq {
             request_id,
@@ -23,7 +38,24 @@ pub async fn handle_msg(msg: Message, replier: mpsc::Sender<Message>) {
             dir_inode,
             filename,
         } => {
-            todo!()
+            let filename_path = PathBuf::from(OsString::from_vec(filename));
+            let mut fs = fs.lock().await;
+            let reply = match fs.lookup(dir_inode, &filename_path).await {
+                Ok(inode) => Message::LookupRes { request_id, inode },
+                Err(e) => match e.kind() {
+                    ErrorKind::NotFound => Message::Error {
+                        request_id,
+                        error_code: ErrorCode::NotFound,
+                        message: e.to_string(),
+                    },
+                    _ => Message::Error {
+                        request_id,
+                        error_code: ErrorCode::Internal,
+                        message: e.to_string(),
+                    },
+                },
+            };
+            replier.send(reply).await.unwrap();
         }
 
         Message::GetAttrReq { request_id, inode } => {

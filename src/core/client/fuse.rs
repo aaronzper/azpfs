@@ -1,24 +1,31 @@
-use crate::client::handler::ClientHandler;
-use crate::{AzpfsReader, AzpfsWriter};
+use crate::fs::FsBackend;
 use fuser::{
     Errno, FileAttr, FileHandle, FileType, Filesystem, Generation, INodeNo,
     ReplyAttr, ReplyDirectory, ReplyEntry, Request,
 };
 use libc::ENOENT;
 use std::ffi::OsStr;
+use std::path::Path;
+use std::sync::Mutex;
 use std::time::{Duration, UNIX_EPOCH};
 use tracing::*;
 
 const TEST_FILENAME: &str = "foo";
 
 #[derive(Debug)]
-pub struct FUSEFilesytem<W: AzpfsWriter> {
-    handler: ClientHandler<W>,
+/// Main client-side structure, implementing FUSE API endpoints that invoke
+/// AZPFS protocol requests to the server
+pub struct FUSEFilesytem<F: FsBackend> {
+    backend: Mutex<F>,
+    async_rt: tokio::runtime::Handle,
 }
 
-impl<W: AzpfsWriter> FUSEFilesytem<W> {
-    pub fn new(handler: ClientHandler<W>) -> Self {
-        Self { handler }
+impl<F: FsBackend> FUSEFilesytem<F> {
+    pub fn new(backend: F) -> Self {
+        Self {
+            backend: Mutex::new(backend),
+            async_rt: tokio::runtime::Handle::current(),
+        }
     }
 }
 
@@ -42,8 +49,8 @@ fn dir_attr(ino: INodeNo) -> FileAttr {
     }
 }
 
-impl<W: AzpfsWriter> Filesystem for FUSEFilesytem<W> {
-    #[instrument]
+impl<F: FsBackend> Filesystem for FUSEFilesytem<F> {
+    #[instrument(skip(self, _req, reply))]
     fn lookup(
         &self,
         _req: &Request,
@@ -51,14 +58,19 @@ impl<W: AzpfsWriter> Filesystem for FUSEFilesytem<W> {
         name: &OsStr,
         reply: ReplyEntry,
     ) {
-        if parent == INodeNo(1) && name == TEST_FILENAME {
-            reply.entry(
+        match self.async_rt.block_on(async {
+            self.backend
+                .lock()
+                .unwrap()
+                .lookup(parent.0, Path::new(name))
+                .await
+        }) {
+            Ok(ino) => reply.entry(
                 &Duration::from_secs(0),
-                &dir_attr(INodeNo(2)),
+                &dir_attr(INodeNo(ino)),
                 Generation(0),
-            );
-        } else {
-            reply.error(Errno::from_i32(ENOENT));
+            ),
+            Err(_) => reply.error(Errno::from_i32(ENOENT)),
         }
     }
 
