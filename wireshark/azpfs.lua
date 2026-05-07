@@ -34,6 +34,7 @@ local error_code_names = {
     [0x01] = "E_INVALID",
     [0x02] = "E_NOTFOUND",
     [0x03] = "E_EXISTS",
+    [0x04] = "E_UNSUPPORTED",
 }
 
 local file_type_names = {

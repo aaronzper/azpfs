@@ -116,7 +116,10 @@ impl FsBackend for DiskFs {
     }
 
     async fn stats(&mut self) -> Result<FsStats> {
-        Err(ErrorKind::Unsupported.into())
+        Err(io::Error::new(
+            ErrorKind::Unsupported,
+            "Server does not support stats",
+        ))
     }
 
     async fn create_file(
