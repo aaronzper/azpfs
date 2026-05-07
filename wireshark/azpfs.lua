@@ -1,5 +1,6 @@
 -- AZPFS Wireshark Dissector
--- Install: symlink or copy to ~/.wireshark/plugins/
+-- Install dissector: symlink or copy azpfs.lua to ~/.local/lib/wireshark/plugins/
+-- Install colors:    View > Coloring Rules > Import → select wireshark/colorfilters
 
 local azpfs = Proto.new("azpfs", "AZPFS Protocol")
 

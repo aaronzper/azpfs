@@ -1,0 +1,1 @@
+@AZPFS INIT@azpfs.msg_type == 0x01 || azpfs.msg_type == 0x02@[59033,59033,59033][0,0,0]
