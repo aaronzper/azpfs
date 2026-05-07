@@ -11,6 +11,7 @@ pub enum ErrorCode {
     Invalid = 1,
     NotFound = 2,
     Exists = 3,
+    Unsupported = 4,
 }
 
 impl From<ErrorCode> for ErrorKind {
@@ -20,6 +21,7 @@ impl From<ErrorCode> for ErrorKind {
             ErrorCode::Invalid => Self::InvalidInput,
             ErrorCode::NotFound => Self::NotFound,
             ErrorCode::Exists => Self::AlreadyExists,
+            ErrorCode::Unsupported => Self::Unsupported,
         }
     }
 }
@@ -30,6 +32,7 @@ impl From<ErrorKind> for ErrorCode {
             ErrorKind::InvalidInput => Self::Invalid,
             ErrorKind::NotFound => Self::NotFound,
             ErrorKind::AlreadyExists => Self::Exists,
+            ErrorKind::Unsupported => Self::Unsupported,
 
             _ => Self::Internal,
         }

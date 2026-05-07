@@ -116,7 +116,7 @@ impl FsBackend for DiskFs {
     }
 
     async fn stats(&mut self) -> Result<FsStats> {
-        todo!()
+        Err(ErrorKind::Unsupported.into())
     }
 
     async fn create_file(
