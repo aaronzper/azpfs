@@ -382,7 +382,14 @@ impl<W: AzpfsWriter> FsBackend for ClientHandler<W> {
     }
 
     async fn remove(&mut self, inode: u64) -> io::Result<()> {
-        todo!()
+        let mut listener = self
+            .send_msg(Message::RmReq {
+                request_id: 0,
+                inode,
+            })
+            .await?;
+
+        await_success(&mut listener).await
     }
 
     async fn rename(

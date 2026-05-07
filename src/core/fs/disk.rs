@@ -211,7 +211,16 @@ impl FsBackend for DiskFs {
     }
 
     async fn remove(&mut self, inode: u64) -> Result<()> {
-        todo!()
+        let path = self.get_path(inode)?;
+
+        if fs::metadata(path).await?.is_dir() {
+            fs::remove_dir_all(path).await?;
+        } else {
+            fs::remove_file(path).await?;
+        }
+
+        self.inode_map.remove(&inode);
+        Ok(())
     }
 
     async fn rename(

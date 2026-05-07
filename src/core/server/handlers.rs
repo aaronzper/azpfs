@@ -203,7 +203,12 @@ pub async fn handle_msg(
         }
 
         Message::RmReq { request_id, inode } => {
-            todo!()
+            let mut fs = fs.lock().await;
+            let reply = match fs.remove(inode).await {
+                Ok(()) => Message::SuccessRes { request_id },
+                Err(e) => Message::from_error(request_id, e),
+            };
+            replier.send(reply).await.unwrap();
         }
 
         Message::MoveReq {
