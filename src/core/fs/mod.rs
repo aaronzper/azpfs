@@ -47,6 +47,20 @@ impl TryFrom<u8> for FileType {
     }
 }
 
+impl From<FileType> for fuser::FileType {
+    fn from(value: FileType) -> Self {
+        match value {
+            FileType::Pipe => Self::NamedPipe,
+            FileType::CharDevice => Self::CharDevice,
+            FileType::BlockDevice => Self::BlockDevice,
+            FileType::Directory => Self::Directory,
+            FileType::RegularFile => Self::RegularFile,
+            FileType::Symlink => Self::Symlink,
+            FileType::Socket => Self::Socket,
+        }
+    }
+}
+
 impl From<fs::FileType> for FileType {
     fn from(value: fs::FileType) -> Self {
         if value.is_fifo() {
