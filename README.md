@@ -1,16 +1,16 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 # AZPFS — Networked FUSE Filesystem
 
-CSCI 1680 Final Project, Brown University, Spring '26.
+A networked filesystem over TCP, written in Rust on Linux's FUSE interface.
 
-A networked filesystem over TCP using Linux's FUSE interface. The client is a FUSE daemon that
-forwards kernel filesystem calls over the wire to a server, which serves them against a real
-on-disk filesystem.
+The client is a FUSE daemon that forwards kernel filesystem calls over the wire to a server.
+The server runs those calls against a real on-disk filesystem and returns the result.
 
-This is meant to be run over Linux, in the course ubuntu container.
+The protocol is a custom binary wire format. It is fully asynchronous: the server may answer
+out of order, so a large read never blocks a short operation behind it. Large payloads are
+chunked, and the client reassembles them by offset. See [Protocol.md](Protocol.md) for the
+full wire format, and the [message type table](#message-type-table-spec-v10) below for a summary.
+
+Built for CSCI 1680 (Computer Networks) at Brown University. Runs on Linux; needs FUSE.
 
 ## Crate layout
 
@@ -172,7 +172,7 @@ those bounds (real `TcpStream` halves, `tokio::io::duplex` halves) works without
 - `ClientHandler<W: AzpfsWriter>` in `fs/handler.rs` — implements `FsBackend`; generic over the writer half
 - `ClientHandler::new(r, w)` — spawns a `receive_loop` task, then performs the INIT handshake
 - `receive_loop` routes incoming messages to per-request `mpsc::unbounded_channel` receivers keyed by request ID
-- `FUSEFilesytem<F: FsBackend>` in `client/fuse.rs` wraps any `FsBackend` in a `Mutex` and implements `fuser::Filesystem`; `getattr`/`readdir` are currently stubbed with hardcoded values
+- `FUSEFilesystem<F: FsBackend>` in `client/fuse.rs` wraps any `FsBackend` in a `Mutex` and implements `fuser::Filesystem`
 
 ## FUSE operations in scope
 
@@ -186,12 +186,8 @@ Stretch:
 - `link`, `symlink`, `readlink` (inode links)
 - `getlk`, `setlk` (POSIX flock)
 
-## Project scope & deadlines
+## Development notes
 
-- **Proposal**: April 27, 2026 *(submitted)*
-- **Final submission**: May 8, 2026
-- Working solo
-
-The implementation does not need to be production-grade. The goal is a working end-to-end
-demonstration: mount the client, perform file CRUD operations, have them reflected on the
-server's filesystem.
+Parts of the tooling and test suite were written with AI assistance. Commits carry
+`Co-Authored-By` trailers where that applies. The protocol design, wire codec, and
+architecture are my own.
