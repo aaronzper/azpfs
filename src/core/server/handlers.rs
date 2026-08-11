@@ -64,7 +64,10 @@ pub async fn handle_msg(
                 accepted: version == 0x00,
             };
 
-            replier.send(reply).await.unwrap();
+            // A send error means the client disconnected.
+            if replier.send(reply).await.is_err() {
+                warn!("Client disconnected before the reply was sent");
+            }
         }
 
         Message::LookupReq {
@@ -78,7 +81,10 @@ pub async fn handle_msg(
                 Ok(inode) => Message::LookupRes { request_id, inode },
                 Err(e) => Message::from_error(request_id, e),
             };
-            replier.send(reply).await.unwrap();
+            // A send error means the client disconnected.
+            if replier.send(reply).await.is_err() {
+                warn!("Client disconnected before the reply was sent");
+            }
         }
 
         Message::GetAttrReq { request_id, inode } => {
@@ -87,7 +93,10 @@ pub async fn handle_msg(
                 Ok(attr) => attr.into_message(request_id),
                 Err(e) => Message::from_error(request_id, e),
             };
-            replier.send(reply).await.unwrap();
+            // A send error means the client disconnected.
+            if replier.send(reply).await.is_err() {
+                warn!("Client disconnected before the reply was sent");
+            }
         }
 
         Message::SetAttrReq {
@@ -111,7 +120,10 @@ pub async fn handle_msg(
                 Ok(()) => Message::SuccessRes { request_id },
                 Err(e) => Message::from_error(request_id, e),
             };
-            replier.send(reply).await.unwrap();
+            // A send error means the client disconnected.
+            if replier.send(reply).await.is_err() {
+                warn!("Client disconnected before the reply was sent");
+            }
         }
 
         Message::StatsReq { request_id } => {
@@ -120,7 +132,10 @@ pub async fn handle_msg(
                 Ok(stats) => stats.into_message(request_id),
                 Err(e) => Message::from_error(request_id, e),
             };
-            replier.send(reply).await.unwrap();
+            // A send error means the client disconnected.
+            if replier.send(reply).await.is_err() {
+                warn!("Client disconnected before the reply was sent");
+            }
         }
 
         Message::CreateReq {
@@ -145,7 +160,10 @@ pub async fn handle_msg(
                 Ok(inode) => Message::LookupRes { request_id, inode },
                 Err(e) => Message::from_error(request_id, e),
             };
-            replier.send(reply).await.unwrap();
+            // A send error means the client disconnected.
+            if replier.send(reply).await.is_err() {
+                warn!("Client disconnected before the reply was sent");
+            }
         }
 
         Message::ReadReq {
@@ -159,7 +177,10 @@ pub async fn handle_msg(
                 Ok(b) => b,
                 Err(e) => {
                     let reply = Message::from_error(request_id, e);
-                    replier.send(reply).await.unwrap();
+                    // A send error means the client disconnected.
+                    if replier.send(reply).await.is_err() {
+                        warn!("Client disconnected before the reply was sent");
+                    }
                     return;
                 }
             };
@@ -169,7 +190,10 @@ pub async fn handle_msg(
             for reply in replies {
                 let replier = replier.clone();
                 reply_set.spawn(async move {
-                    replier.send(reply).await.unwrap();
+                    // A send error means the client disconnected.
+                    if replier.send(reply).await.is_err() {
+                        warn!("Client disconnected before the reply was sent");
+                    }
                 });
             }
 
@@ -187,7 +211,10 @@ pub async fn handle_msg(
                 Ok(()) => Message::SuccessRes { request_id },
                 Err(e) => Message::from_error(request_id, e),
             };
-            replier.send(reply).await.unwrap();
+            // A send error means the client disconnected.
+            if replier.send(reply).await.is_err() {
+                warn!("Client disconnected before the reply was sent");
+            }
         }
 
         Message::ReaddirReq { request_id, inode } => {
@@ -196,7 +223,10 @@ pub async fn handle_msg(
                 Ok(e) => e,
                 Err(e) => {
                     let reply = Message::from_error(request_id, e);
-                    replier.send(reply).await.unwrap();
+                    // A send error means the client disconnected.
+                    if replier.send(reply).await.is_err() {
+                        warn!("Client disconnected before the reply was sent");
+                    }
                     return;
                 }
             };
@@ -209,7 +239,10 @@ pub async fn handle_msg(
                         error_code: ErrorCode::Internal,
                         message: e.to_string(),
                     };
-                    replier.send(reply).await.unwrap();
+                    // A send error means the client disconnected.
+                    if replier.send(reply).await.is_err() {
+                        warn!("Client disconnected before the reply was sent");
+                    }
                     return;
                 }
             };
@@ -219,7 +252,10 @@ pub async fn handle_msg(
             for reply in replies {
                 let replier = replier.clone();
                 reply_set.spawn(async move {
-                    replier.send(reply).await.unwrap();
+                    // A send error means the client disconnected.
+                    if replier.send(reply).await.is_err() {
+                        warn!("Client disconnected before the reply was sent");
+                    }
                 });
             }
 
@@ -232,7 +268,10 @@ pub async fn handle_msg(
                 Ok(()) => Message::SuccessRes { request_id },
                 Err(e) => Message::from_error(request_id, e),
             };
-            replier.send(reply).await.unwrap();
+            // A send error means the client disconnected.
+            if replier.send(reply).await.is_err() {
+                warn!("Client disconnected before the reply was sent");
+            }
         }
 
         Message::MoveReq {
@@ -249,7 +288,10 @@ pub async fn handle_msg(
                     Ok(()) => Message::SuccessRes { request_id },
                     Err(e) => Message::from_error(request_id, e),
                 };
-            replier.send(reply).await.unwrap();
+            // A send error means the client disconnected.
+            if replier.send(reply).await.is_err() {
+                warn!("Client disconnected before the reply was sent");
+            }
         }
 
         // Client sent a response message for some reason, ignore

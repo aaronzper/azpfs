@@ -189,15 +189,35 @@ impl<W: AzpfsWriter> ClientHandler<W> {
             })
             .await?;
 
-        if let Some(Message::InitRes {
-            request_id: _,
-            accepted,
-        }) = init_listener.recv().await
-            && accepted
-        {
-            Ok(())
-        } else {
-            todo!()
+        match init_listener.recv().await {
+            Some(Message::InitRes {
+                request_id: _,
+                accepted: true,
+            }) => Ok(()),
+            Some(Message::InitRes { .. }) => Err(io::Error::new(
+                ErrorKind::ConnectionRefused,
+                "server rejected the INIT handshake",
+            )),
+            Some(Message::Error {
+                error_code,
+                message,
+                ..
+            }) => Err(io::Error::new(
+                ErrorKind::ConnectionRefused,
+                format!(
+                    "server returned an error during INIT: {error_code:?}: {message}"
+                ),
+            )),
+            // The server sent a message that is not a valid INIT reply.
+            Some(other) => Err(io::Error::new(
+                ErrorKind::InvalidData,
+                format!("unexpected reply to INIT_REQ: {other:?}"),
+            )),
+            // The receive loop closed the channel before any reply arrived.
+            None => Err(io::Error::new(
+                ErrorKind::UnexpectedEof,
+                "connection closed during the INIT handshake",
+            )),
         }
     }
 }
