@@ -16,12 +16,12 @@ use tracing::*;
 #[derive(Debug)]
 /// Main client-side structure, implementing FUSE API endpoints that invoke
 /// AZPFS protocol requests to the server
-pub struct FUSEFilesytem<F: FsBackend> {
+pub struct FUSEFilesystem<F: FsBackend> {
     backend: Mutex<F>,
     async_rt: tokio::runtime::Handle,
 }
 
-impl<F: FsBackend> FUSEFilesytem<F> {
+impl<F: FsBackend> FUSEFilesystem<F> {
     pub fn new(backend: F) -> Self {
         Self {
             backend: Mutex::new(backend),
@@ -70,7 +70,7 @@ fn resolve_time(t: Option<TimeOrNow>) -> Option<SystemTime> {
 
 const TTL: Duration = Duration::from_secs(0);
 
-impl<F: FsBackend> Filesystem for FUSEFilesytem<F> {
+impl<F: FsBackend> Filesystem for FUSEFilesystem<F> {
     #[instrument(skip(self, _req, reply))]
     fn lookup(
         &self,

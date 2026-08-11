@@ -1,6 +1,6 @@
 use clap::Parser;
 use fuser::{Config, MountOption, SessionACL, mount2};
-use libazpfs::client::{ClientHandler, FUSEFilesytem};
+use libazpfs::client::{ClientHandler, FUSEFilesystem};
 use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::TcpStream;
 use tracing::*;
@@ -45,7 +45,7 @@ async fn main() -> std::io::Result<()> {
             return Err(std::io::ErrorKind::NotConnected.into());
         }
     };
-    let fs = FUSEFilesytem::new(handler);
+    let fs = FUSEFilesystem::new(handler);
 
     info!(mountpoint = args.mountpoint.to_str(), "azpfsd starting");
 
